@@ -9,7 +9,7 @@ State Machine (EK1_revize.pdf s.44 — MPR & Uyum):
     Alındı    → (terminal — değiştirilemez)
     Atlandı   → (terminal — değiştirilemez)
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -87,6 +87,11 @@ async def update_dose_status(
         log.notes = body.notes
     if body.status == "Alındı":
         log.actual_time = datetime.now()
+    # Ertelendi: scheduled_time'i 15 dakika sonraya taşı — bildirim penceresi
+    # otomatik olarak bu dozu 15 dk sonra tekrar yakalar (re-notification).
+    # Not: bu bir UPDATE'dir; UniqueConstraint sadece INSERT'te tetiklenir.
+    if body.status == "Ertelendi":
+        log.scheduled_time = datetime.now() + timedelta(minutes=15)
 
     await db.commit()
     await db.refresh(log)

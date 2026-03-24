@@ -105,6 +105,30 @@ def parse_frequency(usage_frequency: str) -> int:
     return 1  # Varsayılan: günde 1
 
 
+async def generate_schedule_for_medication_on_date(
+    med,
+    db,
+    target_date: date,
+) -> List[datetime]:
+    """Tek bir ilacın belirli gün doz saatlerini Algoritma 1 ile üretir."""
+    from datetime import time as time_type
+    from models import UserPreference
+    from sqlalchemy import select
+
+    pref_res = await db.execute(
+        select(UserPreference).where(UserPreference.user_id == med.user_id)
+    )
+    pref = pref_res.scalar_one_or_none()
+    wake_t = pref.wake_time if pref else time_type(8, 0)
+    sleep_t = pref.sleep_time if pref else time_type(22, 0)
+
+    freq = parse_frequency(med.usage_frequency)
+    if freq == 0:
+        return []
+
+    return zamandilimihesapla(wake_t, sleep_t, freq, target_date)
+
+
 # ──────────────────────────────────────────────────────────
 # Zamanlayıcı Görevleri
 # ──────────────────────────────────────────────────────────
@@ -121,8 +145,7 @@ async def create_dose_logs_for_medication(
     Medications router tarafından POST /medications/ sonrası çağrılır.
     Dönüş: oluşturulan log sayısı
     """
-    from models import DoseLog, Medication, UserPreference
-    from datetime import time as time_type
+    from models import DoseLog, Medication
     from sqlalchemy import select
 
     target = target_date or date.today()
@@ -132,18 +155,9 @@ async def create_dose_logs_for_medication(
     if med is None:
         return 0
 
-    pref_res = await db.execute(
-        select(UserPreference).where(UserPreference.user_id == med.user_id)
-    )
-    pref     = pref_res.scalar_one_or_none()
-    wake_t   = pref.wake_time  if pref else time_type(8, 0)
-    sleep_t  = pref.sleep_time if pref else time_type(22, 0)
-
-    freq = parse_frequency(med.usage_frequency)
-    if freq == 0:
+    dose_times = await generate_schedule_for_medication_on_date(med, db, target)
+    if not dose_times:
         return 0
-
-    dose_times = zamandilimihesapla(wake_t, sleep_t, freq, target)
     created = 0
     for dt in dose_times:
         # ON CONFLICT DO NOTHING — UniqueConstraint(medication_id, scheduled_time)
@@ -158,6 +172,45 @@ async def create_dose_logs_for_medication(
     await db.commit()
     logger.info(f"[Anlık] Medication #{medication_id} için {created} DoseLog oluşturuldu.")
     return created
+
+
+async def create_future_dose_logs_for_medication(
+    medication_id: int,
+    db,
+    days: int = 30,
+) -> int:
+    """
+    Yeni ilaç eklendiğinde gelecek N günün planlanan dozlarını DB'ye yazar.
+    MPR ve takvim sorguları için veri tabanı doluluğunu garanti eder.
+    """
+    from models import DoseLog, Medication
+    from sqlalchemy import select
+
+    med_res = await db.execute(select(Medication).where(Medication.id == medication_id))
+    med = med_res.scalar_one_or_none()
+    if med is None:
+        return 0
+
+    created_total = 0
+    today = date.today()
+    for day_offset in range(days):
+        target = today + timedelta(days=day_offset)
+        dose_times = await generate_schedule_for_medication_on_date(med, db, target)
+        for dt in dose_times:
+            stmt = (
+                pg_insert(DoseLog)
+                .values(medication_id=med.id, scheduled_time=dt, status="Bekliyor")
+                .on_conflict_do_nothing(constraint="uq_dose_log_med_time")
+            )
+            result = await db.execute(stmt)
+            created_total += result.rowcount
+
+    await db.commit()
+    logger.info(
+        f"[Seed] Medication #{medication_id} için {days} günlük pencerede "
+        f"{created_total} DoseLog hazırlandı."
+    )
+    return created_total
 
 
 async def create_daily_dose_logs(target_date: date | None = None) -> None:

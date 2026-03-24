@@ -11,7 +11,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import '../models/dose_log.dart';
 import '../services/api_service.dart';
+import '../widgets/dose_tile.dart';
 import 'daily_doses_screen.dart';
 
 class CalendarScreen extends StatefulWidget {
@@ -27,12 +29,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
   // {dateStr → summary map}
   Map<String, dynamic> _monthlySummary = {};
   bool _loadingMonth = false;
+  Future<List<DoseLog>>? _selectedDayLogsFuture;
 
   @override
   void initState() {
     super.initState();
     _selectedDay = DateTime.now();
     _loadMonth(_focusedDay);
+    _loadSelectedDayLogs(_selectedDay!);
+  }
+
+  void _loadSelectedDayLogs(DateTime day) {
+    final normalized = DateTime(day.year, day.month, day.day);
+    setState(() {
+      _selectedDayLogsFuture =
+          context.read<ApiService>().getDailyDoseLogs(normalized);
+    });
   }
 
   Future<void> _loadMonth(DateTime month) async {
@@ -74,27 +86,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       _selectedDay = selected;
       _focusedDay = focused;
     });
-    // Gelecek tarihler sadece görüntülenebilir; işaretleme yapılamaz
-    final today = DateTime.now();
-    final isFuture = selected.isAfter(DateTime(today.year, today.month, today.day));
-    if (isFuture) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Gelecek tarihler için işaretleme yapılamaz.'),
-          backgroundColor: const Color(0xFFE65100),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DailyDosesScreen(date: selected),
-      ),
-    );
+    _loadSelectedDayLogs(selected);
   }
 
   void _onPageChanged(DateTime focusedDay) {
@@ -139,6 +131,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 _selectedDay = today;
               });
               _loadMonth(today);
+              _loadSelectedDayLogs(today);
             },
           ),
         ],
@@ -228,8 +221,165 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
           const SizedBox(height: 12),
 
-          // ── Aylık Uyum Özeti
-          Expanded(child: _MonthlySummaryList(summary: _monthlySummary)),
+          // ── Seçili gün dozu: takvim tıklamasıyla anlık güncellenir
+          Expanded(
+            child: _SelectedDayDoseList(
+              selectedDay: _selectedDay ?? DateTime.now(),
+              logsFuture: _selectedDayLogsFuture,
+              monthlySummary: _monthlySummary,
+              onOpenDay: (date) => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => DailyDosesScreen(date: date)),
+              ),
+              onRefresh: () {
+                if (_selectedDay != null) {
+                  _loadSelectedDayLogs(_selectedDay!);
+                }
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectedDayDoseList extends StatelessWidget {
+  final DateTime selectedDay;
+  final Future<List<DoseLog>>? logsFuture;
+  final Map<String, dynamic> monthlySummary;
+  final VoidCallback onRefresh;
+  final void Function(DateTime date) onOpenDay;
+
+  const _SelectedDayDoseList({
+    required this.selectedDay,
+    required this.logsFuture,
+    required this.monthlySummary,
+    required this.onRefresh,
+    required this.onOpenDay,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = DateFormat('d MMMM yyyy, EEEE', 'tr_TR').format(selectedDay);
+    final today = DateTime.now();
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+    final normalizedSelected = DateTime(
+      selectedDay.year,
+      selectedDay.month,
+      selectedDay.day,
+    );
+    final isFuture = normalizedSelected.isAfter(normalizedToday);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 6, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.view_timeline_rounded,
+                    size: 18, color: Color(0xFF455A64)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Yenile',
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+          ),
+          if (isFuture)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text(
+                'Gelecek dozlar Planlandı olarak gösterilir; butonlar pasif durumda.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF1565C0),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          Expanded(
+            child: FutureBuilder<List<DoseLog>>(
+              future: logsFuture,
+              builder: (context, snapshot) {
+                if (logsFuture == null || snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Dozlar yüklenemedi: ${snapshot.error}',
+                      style: const TextStyle(color: Color(0xFFC62828)),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
+
+                final logs = snapshot.data ?? [];
+                if (logs.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'Seçilen gün için doz kaydı bulunamadı.',
+                      style: TextStyle(color: Color(0xFF607D8B)),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemCount: logs.length,
+                  itemBuilder: (ctx, i) => DoseTile(
+                    log: logs[i],
+                    onTaken: null,
+                    onMissed: null,
+                    onPostponed: null,
+                  ),
+                );
+              },
+            ),
+          ),
+          if (monthlySummary.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => onOpenDay(selectedDay),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Detay Ekranını Aç'),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -256,102 +406,4 @@ class _LegendDot extends StatelessWidget {
           Text(label, style: const TextStyle(fontSize: 11)),
         ],
       );
-}
-
-// ────────────────────────────────────────────────────
-// Aylık özet listesi
-// ────────────────────────────────────────────────────
-class _MonthlySummaryList extends StatelessWidget {
-  final Map<String, dynamic> summary;
-  const _MonthlySummaryList({required this.summary});
-
-  @override
-  Widget build(BuildContext context) {
-    if (summary.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.bar_chart_rounded, size: 52, color: Colors.grey[300]),
-            const SizedBox(height: 12),
-            Text(
-              'Bu ay için doz kaydı yok.',
-              style: TextStyle(color: Colors.grey[500]),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final entries = summary.entries.toList()
-      ..sort((a, b) => b.key.compareTo(a.key)); // Yeniden eskiye
-
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: entries.length,
-      itemBuilder: (ctx, i) {
-        final key = entries[i].key;
-        final info = entries[i].value as Map<String, dynamic>;
-        final taken   = (info['taken']   as num?)?.toInt() ?? 0;
-        final total   = (info['total']   as num?)?.toInt() ?? 0;
-        final rate    = (info['compliance_rate'] as num?)?.toDouble() ?? 0;
-        final missed  = (info['missed']  as num?)?.toInt() ?? 0;
-
-        final dateObj = DateTime.parse(key);
-        final label   = DateFormat('d MMMM, EEEE', 'tr_TR').format(dateObj);
-        final rateStr = '${(rate * 100).round()}%';
-
-        Color barColor = const Color(0xFF2E7D32);
-        if (rate < 0.5) barColor = const Color(0xFFC62828);
-        else if (rate < 0.8) barColor = const Color(0xFFE65100);
-
-        return Card(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12)),
-          child: ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            title: Text(label,
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600)),
-            subtitle: LinearProgressIndicator(
-              value: rate,
-              backgroundColor: Colors.grey[200],
-              color: barColor,
-              minHeight: 6,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '$taken/$total doz',
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w700),
-                ),
-                Text(
-                  rateStr,
-                  style:
-                      TextStyle(fontSize: 12, color: barColor),
-                ),
-                if (missed > 0)
-                  Text(
-                    '$missed atlandı',
-                    style: const TextStyle(
-                        fontSize: 10, color: Color(0xFFC62828)),
-                  ),
-              ],
-            ),
-            onTap: () => Navigator.push(
-              ctx,
-              MaterialPageRoute(
-                  builder: (_) => DailyDosesScreen(date: dateObj)),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }

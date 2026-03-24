@@ -236,7 +236,7 @@ class ApiService extends ChangeNotifier {
     final dateStr =
         '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
     final response = await http.get(
-      Uri.parse('$_kBaseUrl/calendar/daily/$dateStr'),
+      Uri.parse('$_kBaseUrl/medications/schedule/$dateStr'),
       headers: _authHeaders,
     );
     if (response.statusCode == 200) {

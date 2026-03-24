@@ -60,6 +60,10 @@ class NotificationService {
 
   /// Backend /notifications/pending endpoint'inden gelen dozlar için bildirim.
   /// Aynı [doseLogId] için tekrar bildirim göstermez.
+  /// Erteleme sonrası aynı doz için re-notification sağlamak amacıyla
+  /// ID'yi shown listesinden temizler.
+  static void clearId(int doseLogId) => _shownIds.remove(doseLogId);
+
   static void showDoseNotification({
     required int doseLogId,
     required String medicationName,

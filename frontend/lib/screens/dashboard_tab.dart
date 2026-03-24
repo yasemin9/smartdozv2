@@ -98,17 +98,48 @@ class DashboardTabState extends State<DashboardTab>
     });
   }
 
-  // ── Sıradaki doz: ilk Bekliyor (yakında veya gecikmiş)
+  // ── Sıradaki doz: gecikmiş olmayan en yakın Bekliyor/Ertelendi
+  // Gecikmiş (>30dk) dozlar Hero'yu işgal etmez; _OverdueAlertBar'a taşınır (EK1_revize Mod. 8)
   DoseLog? _nextDose(List<DoseLog> logs) {
-    final pending =
-        logs.where((l) => l.isPending).toList()
+    final upcoming = logs
+        .where((l) => l.isPending && !l.isOverdue)
+        .toList()
           ..sort((a, b) => a.scheduledTime.compareTo(b.scheduledTime));
-    return pending.isEmpty ? null : pending.first;
+    if (upcoming.isNotEmpty) return upcoming.first;
+    // Bekliyor/gelecek yoksa Ertelendi'yi göster (Kapalı Döngü)
+    final postponed = logs
+        .where((l) => l.isPostponed)
+        .toList()
+          ..sort((a, b) => a.scheduledTime.compareTo(b.scheduledTime));
+    return postponed.isEmpty ? null : postponed.first;
+  }
+
+  // ── Timeline öncelik sıralaması: yaklaşan → ertelendi → gecikmiş → alındı/atlandı
+  List<DoseLog> _sortedTimeline(List<DoseLog> logs) {
+    int priority(DoseLog l) {
+      if (l.isPending && !l.isOverdue) return 0; // yakında/gelecek
+      if (l.isPostponed)              return 1; // ertelendi
+      if (l.isOverdue)                return 2; // gecikmiş
+      if (l.isTaken)                  return 3; // alındı
+      return 4;                                 // atlandı
+    }
+    return [...logs]
+      ..sort((a, b) {
+        final pc = priority(a).compareTo(priority(b));
+        if (pc != 0) return pc;
+        return a.scheduledTime.compareTo(b.scheduledTime);
+      });
   }
 
   Future<void> _updateStatus(DoseLog log, String newStatus) async {
     try {
       await context.read<ApiService>().updateDoseStatus(log.id, newStatus);
+      // Ertelendi: 15 dk sonra tekrar bildirim gelmelidir.
+      // Backend scheduled_time'i ileri taşıdı, _shownIds'ten temizleyerek
+      // polling bu dozu tekrar bildirebilsin.
+      if (newStatus == 'Ertelendi') {
+        NotificationService.clearId(log.id);
+      }
       if (mounted) setState(_loadDoses);
     } on ApiException catch (e) {
       _showSnack(e.message, isError: true);
@@ -126,6 +157,122 @@ class DashboardTabState extends State<DashboardTab>
         margin: const EdgeInsets.all(16),
       ),
     );
+  }
+
+  // ── Modül 8: Sistematik Davranışsal Sapma diyaloğu (EK1_revize s.46)
+  // 1 saatten uzun gecikmelerde _OverdueRow'daki "Neden?" butonu tetikler.
+  void _showBehavioralDeviationDialog(BuildContext ctx, DoseLog log) {
+    final delay = DateTime.now().difference(log.scheduledTime);
+    final delayStr = delay.inMinutes >= 60
+        ? '${delay.inHours} saat ${delay.inMinutes % 60} dk'
+        : '${delay.inMinutes} dk';
+
+    showModalBottomSheet<void>(
+      context: ctx,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 20,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 32,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.psychology_rounded,
+                    color: _kDanger, size: 24),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Davranışsal Sapma Analizi',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: _kTextDark,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '• ${log.medicationName} — $delayStr gecikmeli',
+              style: const TextStyle(fontSize: 13, color: _kTextMid),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Bu ilacı neden almadınız?',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: _kTextDark,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _ReasonChip(
+                  label: '🤔 Unuttum',
+                  onTap: () => _handleReason(log, 'Unuttum'),
+                ),
+                _ReasonChip(
+                  label: '⚠️ Yan etki korkusu',
+                  onTap: () => _handleReason(log, 'Yan etki korkusu'),
+                ),
+                _ReasonChip(
+                  label: '📦 İlaç bitti',
+                  onTap: () => _handleReason(log, 'İlaç bitti'),
+                ),
+                _ReasonChip(
+                  label: '🚗 Yanımda yoktu',
+                  onTap: () => _handleReason(log, 'Yanımda yoktu'),
+                ),
+                _ReasonChip(
+                  label: '😴 Uyuyordum',
+                  onTap: () => _handleReason(log, 'Uyuyordum'),
+                ),
+                _ReasonChip(
+                  label: '💬 Diğer',
+                  onTap: () => _handleReason(log, 'Diğer'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _updateStatus(log, 'Alındı');
+                },
+                icon: const Icon(Icons.check_rounded, size: 16),
+                label: const Text('Şimdi Aldım'),
+                style: FilledButton.styleFrom(backgroundColor: _kSuccess),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleReason(DoseLog log, String reason) {
+    Navigator.pop(context);
+    context
+        .read<ApiService>()
+        .updateDoseStatus(log.id, 'Atlandı', notes: reason)
+        .then((_) {
+      if (mounted) setState(_loadDoses);
+    }).catchError((_) {});
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -158,20 +305,39 @@ class DashboardTabState extends State<DashboardTab>
             }
 
             final logs = snap.data ?? _cachedLogs;
+            // Gecikmiş ilaçlar Hero'dan ayrılır → _OverdueAlertBar
+            final overdueLogs = logs.where((l) => l.isOverdue).toList()
+              ..sort((a, b) => a.scheduledTime.compareTo(b.scheduledTime));
             final next = _nextDose(logs);
+            final sortedLogs = _sortedTimeline(logs);
 
             return CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
+                // ── Gecikmiş İlaç Kritik Uyarı Barı (Modül 8 — Davranışsal Sapma)
+                if (overdueLogs.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: _OverdueAlertBar(
+                      overdueLogs: overdueLogs,
+                      onTaken: (log) => _updateStatus(log, 'Alındı'),
+                      onAskReason: (log) =>
+                          _showBehavioralDeviationDialog(context, log),
+                    ),
+                  ),
+
                 // ── Hero Kart
                 SliverToBoxAdapter(
                   child: _HeroNextDoseCard(
                     nextDose: next,
                     logs: logs,
+                    hasOverdue: overdueLogs.isNotEmpty,
                     onTaken: next != null
                         ? () => _updateStatus(next, 'Alındı')
                         : null,
-                    onPostponed: next != null
+                    onMissed: (next != null && next.isPostponed)
+                        ? () => _updateStatus(next, 'Atlandı')
+                        : null,
+                    onPostponed: (next != null && next.isPending)
                         ? () => _updateStatus(next, 'Ertelendi')
                         : null,
                   ),
@@ -189,26 +355,26 @@ class DashboardTabState extends State<DashboardTab>
                   ),
 
                 // ── Çizelge listesi (timeline)
-                if (logs.isNotEmpty)
+                if (sortedLogs.isNotEmpty)
                   SliverPadding(
                     padding: const EdgeInsets.only(
                         left: 16, right: 16, bottom: 32),
                     sliver: SliverList.separated(
-                      itemCount: logs.length,
+                      itemCount: sortedLogs.length,
                       separatorBuilder: (_, __) =>
                           const SizedBox(height: 0),
                       itemBuilder: (ctx, i) => _TimelineDoseCard(
-                        log: logs[i],
-                        isLast: i == logs.length - 1,
+                        log: sortedLogs[i],
+                        isLast: i == sortedLogs.length - 1,
                         // Bekliyor: tam set; Ertelendi: Alındı + Atlandı
-                        onTaken: (logs[i].isPending || logs[i].isPostponed)
-                            ? () => _updateStatus(logs[i], 'Alındı')
+                        onTaken: (sortedLogs[i].isPending || sortedLogs[i].isPostponed)
+                            ? () => _updateStatus(sortedLogs[i], 'Alındı')
                             : null,
-                        onMissed: (logs[i].isPending || logs[i].isPostponed)
-                            ? () => _updateStatus(logs[i], 'Atlandı')
+                        onMissed: (sortedLogs[i].isPending || sortedLogs[i].isPostponed)
+                            ? () => _updateStatus(sortedLogs[i], 'Atlandı')
                             : null,
-                        onPostponed: logs[i].isPending
-                            ? () => _updateStatus(logs[i], 'Ertelendi')
+                        onPostponed: sortedLogs[i].isPending
+                            ? () => _updateStatus(sortedLogs[i], 'Ertelendi')
                             : null,
                       ),
                     ),
@@ -272,28 +438,35 @@ class DashboardTabState extends State<DashboardTab>
 class _HeroNextDoseCard extends StatelessWidget {
   final DoseLog? nextDose;
   final List<DoseLog> logs;
+  final bool hasOverdue;
   final VoidCallback? onTaken;
+  final VoidCallback? onMissed;
   final VoidCallback? onPostponed;
 
   const _HeroNextDoseCard({
     required this.nextDose,
     required this.logs,
+    required this.hasOverdue,
     this.onTaken,
+    this.onMissed,
     this.onPostponed,
   });
 
   bool get _allTaken =>
-      logs.isNotEmpty && logs.every((l) => l.isTaken);
+      logs.isNotEmpty && logs.every((l) => l.isTaken || l.isMissed);
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      margin: EdgeInsets.fromLTRB(16, hasOverdue ? 8 : 20, 16, 8),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1565C0), Color(0xFF0D47A1)],
+          // Ertelendi → turuncu, Bekliyor → mavi
+          colors: nextDose?.isPostponed == true
+              ? [const Color(0xFFE65100), const Color(0xFFBF360C)]
+              : [const Color(0xFF1565C0), const Color(0xFF0D47A1)],
         ),
         borderRadius: BorderRadius.circular(24),
         boxShadow: const [
@@ -309,11 +482,33 @@ class _HeroNextDoseCard extends StatelessWidget {
         child: _allTaken
             ? _buildAllDoneContent()
             : nextDose == null
-                ? _buildNoDoseContent()
+                ? (hasOverdue
+                    ? _buildOverdueReminder()
+                    : _buildNoDoseContent())
                 : _buildNextDoseContent(),
       ),
     );
   }
+
+  Widget _buildOverdueReminder() => const Column(
+        children: [
+          Text('⚠️', style: TextStyle(fontSize: 44)),
+          SizedBox(height: 10),
+          Text(
+            'Gecikmiş İlaçlarınız Var',
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w800),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Yukarıdaki kırmızı uyarı barından\nilacınızı işaretleyin.',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      );
 
   Widget _buildNextDoseContent() {
     final log = nextDose!;
@@ -332,9 +527,9 @@ class _HeroNextDoseCard extends StatelessWidget {
             const Icon(Icons.medication_rounded,
                 color: Colors.white70, size: 18),
             const SizedBox(width: 6),
-            const Text(
-              'Sıradaki İlacınız',
-              style: TextStyle(
+            Text(
+              log.isPostponed ? 'Ertelenen İlacınız' : 'Sıradaki İlacınız',
+              style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
@@ -415,7 +610,7 @@ class _HeroNextDoseCard extends StatelessWidget {
 
         const SizedBox(height: 20),
 
-        // Aksiyon butonları
+        // Aksiyon butonları — Ertelendi ise "Şimdi Al + Atla", değilse "Aldım + Ertele"
         Row(
           children: [
             Expanded(
@@ -439,7 +634,7 @@ class _HeroNextDoseCard extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             OutlinedButton(
-              onPressed: onPostponed,
+              onPressed: log.isPostponed ? onMissed : onPostponed,
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
                 side: const BorderSide(
@@ -449,12 +644,19 @@ class _HeroNextDoseCard extends StatelessWidget {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14)),
               ),
-              child: const Column(
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.snooze_rounded, size: 20),
-                  Text('Ertele',
-                      style: TextStyle(fontSize: 11)),
+                  Icon(
+                    log.isPostponed
+                        ? Icons.close_rounded
+                        : Icons.snooze_rounded,
+                    size: 20,
+                  ),
+                  Text(
+                    log.isPostponed ? 'Atla' : 'Ertele',
+                    style: const TextStyle(fontSize: 11),
+                  ),
                 ],
               ),
             ),
@@ -1022,6 +1224,57 @@ class _DoseContentCard extends StatelessWidget {
                 ],
               ),
             ],
+
+            // ── Ertelendi: Kapalı Döngü → "Şimdi Al" veya "Atla" (EK1_revize s.46)
+            if (log.isPostponed) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: FilledButton.icon(
+                      onPressed: onTaken,
+                      icon: const Icon(Icons.check_rounded, size: 16),
+                      label: const Text(
+                        'Şimdi Al',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _kSuccess,
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 3,
+                    child: OutlinedButton.icon(
+                      onPressed: onMissed,
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      label: const Text(
+                        'Atla',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _kDanger,
+                        side: const BorderSide(color: _kDanger),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1129,3 +1382,190 @@ class _ErrorView extends StatelessWidget {
         ),
       );
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// GECİKMİŞ İLAÇ UYARI BARI (Modül 2 + Modül 8)
+// ══════════════════════════════════════════════════════════════════════
+
+class _OverdueAlertBar extends StatelessWidget {
+  final List<DoseLog> overdueLogs;
+  final void Function(DoseLog log) onTaken;
+  final void Function(DoseLog log) onAskReason;
+
+  const _OverdueAlertBar({
+    required this.overdueLogs,
+    required this.onTaken,
+    required this.onAskReason,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3F3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: const Color(0xFFC62828).withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFC62828).withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // ── Başlık
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded,
+                    color: Color(0xFFC62828), size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Gecikmiş İlaç (${overdueLogs.length})',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFC62828),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFFFCDD2)),
+          // ── Her gecikmiş ilaç satırı
+          ...overdueLogs.map((log) => _OverdueRow(
+                log: log,
+                onTaken: () => onTaken(log),
+                onAskReason: () => onAskReason(log),
+              )),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverdueRow extends StatelessWidget {
+  final DoseLog log;
+  final VoidCallback onTaken;
+  final VoidCallback onAskReason;
+
+  const _OverdueRow({
+    required this.log,
+    required this.onTaken,
+    required this.onAskReason,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final delay = DateTime.now().difference(log.scheduledTime);
+    final isLongOverdue = delay.inMinutes >= 60;
+    final delayStr = delay.inMinutes >= 60
+        ? '${delay.inHours} sa ${delay.inMinutes % 60} dk gecikmiş'
+        : '${delay.inMinutes} dk gecikmiş';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          // İlaç bilgisi
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  log.medicationName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextDark,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '🕐 ${DateFormat('HH:mm').format(log.scheduledTime)}  •  $delayStr',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isLongOverdue
+                        ? const Color(0xFFC62828)
+                        : const Color(0xFFE65100),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Şimdi Al butonu
+          SizedBox(
+            height: 36,
+            child: FilledButton(
+              onPressed: onTaken,
+              style: FilledButton.styleFrom(
+                backgroundColor: _kSuccess,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('✓ Al', style: TextStyle(fontSize: 13)),
+            ),
+          ),
+          // 1 saat+ gecikmiş → "Neden almadınız?" (Modül 8)
+          if (isLongOverdue) ...[
+            const SizedBox(width: 6),
+            SizedBox(
+              height: 36,
+              child: OutlinedButton(
+                onPressed: onAskReason,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFC62828),
+                  side: const BorderSide(
+                      color: Color(0xFFC62828), width: 1.2),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text(
+                  'Neden?',
+                  style: TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SEBEP CHİP — Davranışsal Sapma Analizi diyaloğu için
+// ══════════════════════════════════════════════════════════════════════
+
+class _ReasonChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _ReasonChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => ActionChip(
+        label: Text(
+          label,
+          style: const TextStyle(
+              fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+        onPressed: onTap,
+        backgroundColor: const Color(0xFFFFF3E0),
+        side: const BorderSide(color: Color(0xFFE65100), width: 0.8),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      );
+}
+

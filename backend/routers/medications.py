@@ -8,6 +8,8 @@ DELETE /medications/{id}   — İlaç sil
 
 Tüm endpoint'ler JWT ile korumalıdır.
 """
+from datetime import date as dt_date, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,9 +17,18 @@ from typing import List
 
 from auth import get_current_user
 from database import get_db
-from models import Medication, User
-from schemas import MedicationCreate, MedicationResponse, MedicationUpdate
-from services.scheduler import create_dose_logs_for_medication
+from models import DoseLog, Medication, User
+from schemas import (
+    MedicationCreate,
+    MedicationResponse,
+    MedicationScheduleDoseResponse,
+    MedicationScheduleResponse,
+    MedicationUpdate,
+)
+from services.scheduler import (
+    create_future_dose_logs_for_medication,
+    generate_schedule_for_medication_on_date,
+)
 
 router = APIRouter(prefix="/medications", tags=["İlaçlar"])
 
@@ -51,7 +62,7 @@ async def create_medication(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Kullanıcıya yeni bir ilaç kaydı ekler ve bugüne ait doz loglarını anlık oluşturur."""
+    """Kullanıcıya yeni ilaç ekler ve 30 günlük planlanan dozları hazırlar."""
     new_med = Medication(
         user_id=current_user.id,
         **medication_data.model_dump(),
@@ -60,10 +71,132 @@ async def create_medication(
     await db.commit()
     await db.refresh(new_med)
 
-    # Algoritma 1 (EK1_revize.pdf s.37): bugünün dozlarını hemen DB'ye yaz
-    await create_dose_logs_for_medication(new_med.id, db)
+    # Modül 2 veri senkronizasyonu: takvimin boş kalmaması için 30 gün seed edilir.
+    await create_future_dose_logs_for_medication(new_med.id, db, days=30)
 
     return new_med
+
+
+@router.get(
+    "/schedule/{date_str}",
+    response_model=MedicationScheduleResponse,
+    summary="Seçilen güne ait doz planı (geçmiş/bugün/gelecek)",
+)
+async def get_medication_schedule_by_date(
+    date_str: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Evrensel doz sorgulama:
+      - Geçmiş gün: yalnızca gerçek loglar (Alındı/Atlandı/Ertelendi)
+      - Bugün: DB'deki gerçek günlük loglar
+      - Gelecek: Algoritma 1 ile sanal Planlandı dozları
+    """
+    try:
+        target = dt_date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Geçersiz tarih formatı. YYYY-MM-DD kullanın.",
+        )
+
+    meds_res = await db.execute(
+        select(Medication)
+        .where(Medication.user_id == current_user.id)
+        .order_by(Medication.name)
+    )
+    medications = meds_res.scalars().all()
+    if not medications:
+        return MedicationScheduleResponse(date=date_str, mode="today", dose_logs=[])
+
+    med_map = {m.id: m for m in medications}
+    med_ids = list(med_map.keys())
+    today = dt_date.today()
+
+    day_start = datetime.combine(target, datetime.min.time())
+    day_end = datetime.combine(target, datetime.max.time())
+
+    if target < today:
+        # Geçmiş: sadece kullanıcı aksiyonunu temsil eden gerçek loglar.
+        logs_res = await db.execute(
+            select(DoseLog)
+            .where(
+                DoseLog.medication_id.in_(med_ids),
+                DoseLog.scheduled_time >= day_start,
+                DoseLog.scheduled_time <= day_end,
+                DoseLog.status.in_(["Alındı", "Atlandı", "Ertelendi"]),
+            )
+            .order_by(DoseLog.scheduled_time)
+        )
+        logs = logs_res.scalars().all()
+        dose_logs = [
+            MedicationScheduleDoseResponse(
+                id=log.id,
+                medication_id=log.medication_id,
+                medication_name=med_map[log.medication_id].name,
+                dosage_form=med_map[log.medication_id].dosage_form,
+                scheduled_time=log.scheduled_time,
+                actual_time=log.actual_time,
+                status=log.status,
+                notes=log.notes,
+                is_virtual=False,
+            )
+            for log in logs
+            if log.medication_id in med_map
+        ]
+        return MedicationScheduleResponse(date=date_str, mode="past", dose_logs=dose_logs)
+
+    if target == today:
+        logs_res = await db.execute(
+            select(DoseLog)
+            .where(
+                DoseLog.medication_id.in_(med_ids),
+                DoseLog.scheduled_time >= day_start,
+                DoseLog.scheduled_time <= day_end,
+            )
+            .order_by(DoseLog.scheduled_time)
+        )
+        logs = logs_res.scalars().all()
+        dose_logs = [
+            MedicationScheduleDoseResponse(
+                id=log.id,
+                medication_id=log.medication_id,
+                medication_name=med_map[log.medication_id].name,
+                dosage_form=med_map[log.medication_id].dosage_form,
+                scheduled_time=log.scheduled_time,
+                actual_time=log.actual_time,
+                status=log.status,
+                notes=log.notes,
+                is_virtual=False,
+            )
+            for log in logs
+            if log.medication_id in med_map
+        ]
+        return MedicationScheduleResponse(date=date_str, mode="today", dose_logs=dose_logs)
+
+    # Gelecek: sanal planlanmış dozları döndür (DB'ye yazmadan hesaplanır)
+    virtual_rows: list[MedicationScheduleDoseResponse] = []
+    for med in medications:
+        dose_times = await generate_schedule_for_medication_on_date(med, db, target)
+        for dt in dose_times:
+            synthetic_id = -int(f"{med.id}{dt.strftime('%d%H%M')}")
+            virtual_rows.append(
+                MedicationScheduleDoseResponse(
+                    id=synthetic_id,
+                    medication_id=med.id,
+                    medication_name=med.name,
+                    dosage_form=med.dosage_form,
+                    scheduled_time=dt,
+                    actual_time=None,
+                    status="Planlandı",
+                    notes="Henüz vakti gelmedi",
+                    is_virtual=True,
+                )
+            )
+
+    virtual_rows.sort(key=lambda x: x.scheduled_time)
+    return MedicationScheduleResponse(date=date_str, mode="future", dose_logs=virtual_rows)
 
 
 @router.put(

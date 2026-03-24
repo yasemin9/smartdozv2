@@ -6,7 +6,7 @@ class DoseLog {
   final String dosageForm;
   final DateTime scheduledTime;
   final DateTime? actualTime;
-  final String status; // Bekliyor | Alındı | Atlandı | Ertelendi
+  final String status; // Bekliyor | Alındı | Atlandı | Ertelendi | Planlandı
   final String? notes;
 
   const DoseLog({
@@ -48,4 +48,5 @@ class DoseLog {
   bool get isMissed   => status == 'Atlandı';
   bool get isPostponed => status == 'Ertelendi';
   bool get isPending   => status == 'Bekliyor';
+  bool get isPlanned   => status == 'Planlandı';
 }

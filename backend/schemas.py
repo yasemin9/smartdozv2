@@ -172,6 +172,26 @@ class DoseLogResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MedicationScheduleDoseResponse(BaseModel):
+    """Takvimde seçilen güne ait doz girdisi (gerçek veya sanal)."""
+    id: int
+    medication_id: int
+    medication_name: str
+    dosage_form: str
+    scheduled_time: datetime
+    actual_time: Optional[datetime] = None
+    status: str
+    notes: Optional[str] = None
+    is_virtual: bool = False
+
+
+class MedicationScheduleResponse(BaseModel):
+    """Evrensel doz sorgulama yanıtı: geçmiş, bugün veya gelecek."""
+    date: str
+    mode: str  # past | today | future
+    dose_logs: List[MedicationScheduleDoseResponse]
+
+
 # ──────────────────────────────────────────────────────
 # Takvim Şemaları
 # ──────────────────────────────────────────────────────
