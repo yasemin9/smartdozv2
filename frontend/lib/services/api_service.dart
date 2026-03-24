@@ -8,8 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/dose_log.dart';
 import '../models/medication.dart';
 import '../models/user.dart';
+import '../models/user_preference.dart';
 
 /// Uygulama içinde tek bir noktada API base URL'ini yönetir.
 /// Flutter Web için backend adresi.
@@ -192,6 +194,110 @@ class ApiService extends ChangeNotifier {
     if (response.statusCode == 204) return;
     if (response.statusCode == 401) await _handleUnauthorized();
     throw const ApiException('İlaç silinemedi.');
+  }
+
+  // ────────────────────────────────────────────────────
+  // Kullanıcı Tercihleri
+  // ────────────────────────────────────────────────────
+
+  /// Uyanma / uyuma tercihlerini döner.
+  Future<UserPreference> getPreferences() async {
+    final response = await http.get(
+      Uri.parse('$_kBaseUrl/preferences/'),
+      headers: _authHeaders,
+    );
+    if (response.statusCode == 200) {
+      return UserPreference.fromJson(_parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Tercihler yüklenemedi.');
+  }
+
+  /// Uyanma / uyuma tercihlerini günceller.
+  Future<UserPreference> updatePreferences(UserPreference pref) async {
+    final response = await http.put(
+      Uri.parse('$_kBaseUrl/preferences/'),
+      headers: _authHeaders,
+      body: jsonEncode(pref.toJson()),
+    );
+    if (response.statusCode == 200) {
+      return UserPreference.fromJson(_parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
+  // ────────────────────────────────────────────────────
+  // Takvim & Doz Takibi
+  // ────────────────────────────────────────────────────
+
+  /// Belirtilen gün için doz loglarını döner.
+  Future<List<DoseLog>> getDailyDoseLogs(DateTime day) async {
+    final dateStr =
+        '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+    final response = await http.get(
+      Uri.parse('$_kBaseUrl/calendar/daily/$dateStr'),
+      headers: _authHeaders,
+    );
+    if (response.statusCode == 200) {
+      final body = _parseBody(response) as Map<String, dynamic>;
+      final list = body['dose_logs'] as List<dynamic>;
+      return list.map((e) => DoseLog.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Günlük dozlar yüklenemedi.');
+  }
+
+  /// Aylık özet döner: {date_str → {taken, missed, pending, total, compliance_rate}}
+  Future<Map<String, dynamic>> getMonthlySummary(int year, int month) async {
+    final response = await http.get(
+      Uri.parse('$_kBaseUrl/calendar/monthly/$year/$month'),
+      headers: _authHeaders,
+    );
+    if (response.statusCode == 200) {
+      final body = _parseBody(response) as Map<String, dynamic>;
+      return body['summary'] as Map<String, dynamic>;
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Aylık özet yüklenemedi.');
+  }
+
+  /// Doz durumunu günceller (Alındı / Atlandı / Ertelendi).
+  Future<DoseLog> updateDoseStatus(int doseLogId, String status, {String? notes}) async {
+    final response = await http.patch(
+      Uri.parse('$_kBaseUrl/dose-logs/$doseLogId'),
+      headers: _authHeaders,
+      body: jsonEncode({
+        'status': status,
+        if (notes != null) 'notes': notes,
+      }),
+    );
+    if (response.statusCode == 200) {
+      return DoseLog.fromJson(_parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
+  // ────────────────────────────────────────────────────
+  // Bildirimler
+  // ────────────────────────────────────────────────────
+
+  /// Önümüzdeki ~15 dakika içinde zamanı gelmiş doz loglarını döner.
+  /// Aynı ID için tekrar bildirim gösterimi frontend'de yönetilir.
+  Future<List<DoseLog>> getPendingNotifications() async {
+    final response = await http.get(
+      Uri.parse('$_kBaseUrl/notifications/pending'),
+      headers: _authHeaders,
+    );
+    if (response.statusCode == 200) {
+      final list = _parseBody(response) as List<dynamic>;
+      return list
+          .map((e) => DoseLog.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Bildirimler alınamadı.');
   }
 
   // ────────────────────────────────────────────────────

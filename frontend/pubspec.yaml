@@ -3,7 +3,7 @@ description: SmartDoz — Akıllı İlaç Takip Sistemi
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.2.0 <4.0.0"
+  sdk: ">=3.3.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -23,6 +23,9 @@ dependencies:
 
   # Google Fonts (opsiyonel, güzel yazı tipi için)
   google_fonts: ^6.2.1
+
+  # Modül 2: Takvim bileşeni
+  table_calendar: ^3.1.2
 
 dev_dependencies:
   flutter_test:

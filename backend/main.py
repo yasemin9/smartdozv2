@@ -7,30 +7,54 @@ Başlatma:
 Swagger UI: http://localhost:8000/docs
 ReDoc:       http://localhost:8000/redoc
 """
+import logging
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import Base, engine
-from routers import medications, users
+from routers import calendar, dose_logs, medications, notifications, preferences, users
+from services.scheduler import create_daily_dose_logs, setup_scheduler
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Uygulama başlangıcında veritabanı tablolarını oluşturur.
-    Production ortamında Alembic migration kullanınız.
+    Uygulama yaşam döngüsü:
+    1. DB tablolarını oluştur
+    2. Bugünün doz loglarını oluştur
+    3. APScheduler'ı başlat (RabbitMQ simülasyonu — EK1_revize.pdf s.27)
     """
+    # 1. Tablolar
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # 2. Bugünkü loglar (startup lazy creation)
+    try:
+        await create_daily_dose_logs(date.today())
+        logger.info("Başlangıç doz logları hazır.")
+    except Exception as exc:
+        logger.warning(f"Başlangıç doz log oluşturma: {exc}")
+
+    # 3. Zamanlayıcı
+    sched = setup_scheduler()
+    sched.start()
+    logger.info("APScheduler başlatıldı.")
+
     yield
+
+    sched.shutdown(wait=False)
+    logger.info("APScheduler durduruldu.")
 
 
 app = FastAPI(
     title="SmartDoz API",
-    description="Akıllı İlaç Takip Sistemi — Kullanıcı & İlaç Yönetimi",
-    version="1.0.0",
+    description="Akıllı İlaç Takip Sistemi — Modül 1 & 2",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -55,12 +79,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Router'ları kaydet
+# ── Router'ları kaydet
 app.include_router(users.router)
 app.include_router(medications.router)
+app.include_router(calendar.router)
+app.include_router(dose_logs.router)
+app.include_router(preferences.router)
+app.include_router(notifications.router)
 
 
 @app.get("/health", tags=["Sistem"])
 async def health_check():
     """Servis sağlık kontrolü."""
-    return {"status": "healthy", "service": "SmartDoz API", "version": "1.0.0"}
+    return {"status": "healthy", "service": "SmartDoz API", "version": "2.0.0"}

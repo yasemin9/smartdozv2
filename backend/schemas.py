@@ -3,8 +3,8 @@ SmartDoz - Pydantic Şemaları (Request / Response Doğrulama)
 
 Tüm API giriş/çıkış veri yapıları burada tanımlanır.
 """
-from datetime import date
-from typing import Optional
+from datetime import date, datetime, time
+from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr, field_validator
 
@@ -111,3 +111,90 @@ class MedicationResponse(BaseModel):
     expiry_date: date
 
     model_config = {"from_attributes": True}
+
+
+# ──────────────────────────────────────────────────────
+# Kullanıcı Tercihleri Şemaları
+# ──────────────────────────────────────────────────────
+
+class UserPreferenceUpdate(BaseModel):
+    """Uyanma / uyuma saati güncelleme isteği."""
+    wake_time: time
+    sleep_time: time
+
+    @field_validator("sleep_time")
+    @classmethod
+    def validate_sleep(cls, v: time, info) -> time:
+        wake = info.data.get("wake_time")
+        if wake and v == wake:
+            raise ValueError("Uyanma ve uyuma saati aynı olamaz.")
+        return v
+
+
+class UserPreferenceResponse(BaseModel):
+    wake_time: time
+    sleep_time: time
+
+    model_config = {"from_attributes": True}
+
+
+# ──────────────────────────────────────────────────────
+# Doz Takip Şemaları
+# ──────────────────────────────────────────────────────
+
+VALID_STATUSES = {"Alındı", "Atlandı", "Ertelendi"}
+
+
+class DoseLogStatusUpdate(BaseModel):
+    """Doz durumu güncelleme isteği."""
+    status: str
+    notes: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        if v not in VALID_STATUSES:
+            raise ValueError(f"Geçersiz durum. Seçenekler: {VALID_STATUSES}")
+        return v
+
+
+class DoseLogResponse(BaseModel):
+    """Doz log yanıtı — ilaç adı ve kullanıcı bilgisiyle zenginleştirilmiş."""
+    id: int
+    medication_id: int
+    medication_name: str
+    dosage_form: str
+    scheduled_time: datetime
+    actual_time: Optional[datetime] = None
+    status: str
+    notes: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ──────────────────────────────────────────────────────
+# Takvim Şemaları
+# ──────────────────────────────────────────────────────
+
+class DailySummary(BaseModel):
+    """Bir güne ait doz özeti."""
+    date: str           # "YYYY-MM-DD"
+    total: int
+    taken: int
+    missed: int
+    postponed: int
+    pending: int
+    compliance_rate: float  # 0.0 – 1.0
+
+
+class DailyCalendarResponse(BaseModel):
+    """Günlük takvim verisi."""
+    date: str
+    dose_logs: List[DoseLogResponse]
+
+
+class MonthlyCalendarResponse(BaseModel):
+    """Aylık takvim özeti — her gün için uyum istatistiği."""
+    year: int
+    month: int
+    summary: dict[str, DailySummary]

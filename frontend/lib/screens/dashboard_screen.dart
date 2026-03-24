@@ -9,7 +9,9 @@ import '../models/medication.dart';
 import '../services/api_service.dart';
 import '../widgets/medication_card.dart';
 import 'add_medication_screen.dart';
+import 'calendar_screen.dart';
 import 'login_screen.dart';
+import 'preferences_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -134,6 +136,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
             ),
+          // ── Takvim (Modül 2)
+          IconButton(
+            icon: const Icon(Icons.calendar_month_rounded),
+            tooltip: 'Doz Takvimi',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CalendarScreen()),
+            ),
+          ),
+          // ── Tercihler (Modül 2)
+          IconButton(
+            icon: const Icon(Icons.tune_rounded),
+            tooltip: 'Hatırlatıcı Ayarları',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PreferencesScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             tooltip: 'Çıkış Yap',

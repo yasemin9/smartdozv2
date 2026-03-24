@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
-import 'dashboard_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -36,12 +35,8 @@ class _LoginScreenState extends State<LoginScreen> {
             email: _emailController.text.trim(),
             password: _passwordController.text,
           );
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const DashboardScreen()),
-        );
-      }
+      // Login başarılı: main.dart'taki Consumer<ApiService> otomatik
+      // HomeScreen'e yönlendirir — manuel navigasyon gereksiz
     } on ApiException catch (e) {
       _showError(e.message);
     } catch (_) {

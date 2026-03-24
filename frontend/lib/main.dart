@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
-import 'screens/dashboard_screen.dart';
+import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/api_service.dart';
 
@@ -44,7 +44,7 @@ class SmartDozApp extends StatelessWidget {
       home: Consumer<ApiService>(
         builder: (context, apiService, _) {
           if (apiService.isAuthenticated) {
-            return const DashboardScreen();
+            return const HomeScreen();
           }
           return const LoginScreen();
         },

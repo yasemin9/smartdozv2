@@ -17,6 +17,7 @@ from auth import get_current_user
 from database import get_db
 from models import Medication, User
 from schemas import MedicationCreate, MedicationResponse, MedicationUpdate
+from services.scheduler import create_dose_logs_for_medication
 
 router = APIRouter(prefix="/medications", tags=["İlaçlar"])
 
@@ -50,7 +51,7 @@ async def create_medication(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Kullanıcıya yeni bir ilaç kaydı ekler."""
+    """Kullanıcıya yeni bir ilaç kaydı ekler ve bugüne ait doz loglarını anlık oluşturur."""
     new_med = Medication(
         user_id=current_user.id,
         **medication_data.model_dump(),
@@ -58,6 +59,10 @@ async def create_medication(
     db.add(new_med)
     await db.commit()
     await db.refresh(new_med)
+
+    # Algoritma 1 (EK1_revize.pdf s.37): bugünün dozlarını hemen DB'ye yaz
+    await create_dose_logs_for_medication(new_med.id, db)
+
     return new_med
 
 
