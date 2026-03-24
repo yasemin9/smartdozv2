@@ -10,7 +10,7 @@ Tablolar:
 from datetime import date, datetime, time
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Integer, Time, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, String, Integer, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -126,6 +126,21 @@ class DoseLog(Base):
     notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     medication: Mapped["Medication"] = relationship("Medication", back_populates="dose_logs")
+
+
+class GlobalMedication(Base):
+    """
+    Global ilaç veritabanı — ilac.json'dan beslenir.
+    Modül 1 TypeAhead araması ve Modül 3 ilaç etkileşim kontrolü için kullanılır.
+    """
+    __tablename__ = "global_medications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    barcode: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    atc_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    active_ingredient: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    product_name: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
+    category_1: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
 
     def __repr__(self) -> str:
         return f"<DoseLog id={self.id} med={self.medication_id} status={self.status!r}>"

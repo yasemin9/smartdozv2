@@ -11,14 +11,15 @@ Tüm endpoint'ler JWT ile korumalıdır.
 from datetime import date as dt_date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from auth import get_current_user
 from database import get_db
-from models import DoseLog, Medication, User
+from models import DoseLog, GlobalMedication, Medication, User
 from schemas import (
+    GlobalMedicationSearchResult,
     MedicationCreate,
     MedicationResponse,
     MedicationScheduleDoseResponse,
@@ -197,6 +198,45 @@ async def get_medication_schedule_by_date(
 
     virtual_rows.sort(key=lambda x: x.scheduled_time)
     return MedicationScheduleResponse(date=date_str, mode="future", dose_logs=virtual_rows)
+
+
+@router.get(
+    "/global-search",
+    response_model=List[GlobalMedicationSearchResult],
+    summary="Global ilaç veritabanında ara (TypeAhead)",
+)
+async def search_global_medications(
+    query: str,
+    limit: int = 20,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    ILIKE tabanlı ilaç adı / etkin madde / ATC kodu araması.
+    TypeAhead + sonsuz kaydırma için limit/offset destekler.
+    En fazla 20 sonuç döner (limit parametresiyle kontrol edilir).
+    """
+    q = query.strip()
+    if len(q) < 2:
+        return []
+    pattern = f"%{q}%"
+    safe_limit = min(max(int(limit), 1), 50)  # 1-50 arasında zorla
+    safe_offset = max(int(offset), 0)
+    result = await db.execute(
+        select(GlobalMedication)
+        .where(
+            or_(
+                GlobalMedication.product_name.ilike(pattern),
+                GlobalMedication.active_ingredient.ilike(pattern),
+                GlobalMedication.atc_code.ilike(pattern),
+            )
+        )
+        .order_by(GlobalMedication.product_name)
+        .limit(safe_limit)
+        .offset(safe_offset)
+    )
+    return result.scalars().all()
 
 
 @router.put(

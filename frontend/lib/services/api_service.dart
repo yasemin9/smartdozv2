@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/dose_log.dart';
+import '../models/global_medication.dart';
 import '../models/medication.dart';
 import '../models/user.dart';
 import '../models/user_preference.dart';
@@ -182,6 +183,35 @@ class ApiService extends ChangeNotifier {
     }
     if (response.statusCode == 401) await _handleUnauthorized();
     throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
+  /// Global ilaç kataloğunda arama yapar (TypeAhead + Infinite Scroll).
+  ///
+  /// [query]  Kullanıcının yazdığı metin (min 2 karakter).
+  /// [limit]  Sayfa başına max sonuç (varsayılan 20).
+  /// [offset] Sonsuz kaydırma için başlangıç ofseti.
+  Future<List<GlobalMedication>> searchGlobalMedications({
+    required String query,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    if (query.trim().length < 2) return [];
+    final uri = Uri.parse('$_kBaseUrl/medications/global-search').replace(
+      queryParameters: {
+        'query': query.trim(),
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      },
+    );
+    final response = await http.get(uri, headers: _authHeaders);
+    if (response.statusCode == 200) {
+      final list = _parseBody(response) as List<dynamic>;
+      return list
+          .map((e) => GlobalMedication.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    return [];
   }
 
   /// İlaç kaydını siler.

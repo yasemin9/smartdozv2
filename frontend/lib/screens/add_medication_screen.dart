@@ -1,8 +1,11 @@
 /// SmartDoz - İlaç Ekleme Formu
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../models/global_medication.dart';
 import '../models/medication.dart';
 import '../services/api_service.dart';
 
@@ -50,6 +53,21 @@ class AddMedicationScreen extends StatefulWidget {
 class _AddMedicationScreenState extends State<AddMedicationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  final _nameFocusNode = FocusNode();
+  final _suggScrollCtrl = ScrollController();
+
+  // Modül 1 TypeAhead durumu
+  List<GlobalMedication> _suggestions = [];
+  bool _showSuggestions = false;
+  bool _isSearching = false;
+  bool _hasMore = true;
+  int _searchOffset = 0;
+  String _lastQuery = '';
+  Timer? _debounceTimer;
+
+  // Modül 3 için gizli alanlar — seçilen ilaç metadata
+  GlobalMedication? _selectedGlobalMed;
+
   String? _selectedDosageForm;
   String? _selectedFrequency;
   String? _selectedUsageTime;
@@ -57,9 +75,94 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Sonsuz kaydırma: listenin altına yakınılacakta daha fazla yükle
+    _suggScrollCtrl.addListener(() {
+      final pos = _suggScrollCtrl.position;
+      if (pos.pixels >= pos.maxScrollExtent - 80 &&
+          !_isSearching &&
+          _hasMore) {
+        _fetchSuggestions(_lastQuery);
+      }
+    });
+    // Alan odakı kaybedince 200ms sonra listeyi gizle
+    _nameFocusNode.addListener(() {
+      if (!_nameFocusNode.hasFocus) {
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (mounted) setState(() => _showSuggestions = false);
+        });
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _nameController.dispose();
+    _nameFocusNode.dispose();
+    _suggScrollCtrl.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  // ── TypeAhead logic ──────────────────────────────────
+
+  void _onNameChanged(String value) {
+    // Seçili ilaçtan farklı bir şey yazılırsa seçimi sıfırla
+    if (_selectedGlobalMed != null &&
+        value.trim() != _selectedGlobalMed!.productName) {
+      _selectedGlobalMed = null;
+    }
+    _debounceTimer?.cancel();
+    if (value.trim().length < 2) {
+      setState(() {
+        _showSuggestions = false;
+        _suggestions = [];
+      });
+      return;
+    }
+    _debounceTimer = Timer(
+      const Duration(milliseconds: 350),
+      () => _fetchSuggestions(value.trim(), reset: true),
+    );
+  }
+
+  Future<void> _fetchSuggestions(String query, {bool reset = false}) async {
+    if (reset) {
+      _searchOffset = 0;
+      _lastQuery = query;
+      _suggestions = [];
+      _hasMore = true;
+    }
+    if (!_hasMore || query.length < 2) return;
+
+    setState(() => _isSearching = true);
+    try {
+      final results = await context.read<ApiService>().searchGlobalMedications(
+            query: query,
+            offset: _searchOffset,
+          );
+      if (!mounted) return;
+      setState(() {
+        _suggestions.addAll(results);
+        _searchOffset += results.length;
+        _hasMore = results.length == 20;
+        _showSuggestions = _suggestions.isNotEmpty;
+        _isSearching = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isSearching = false);
+    }
+  }
+
+  void _onSuggestionSelected(GlobalMedication med) {
+    setState(() {
+      _nameController.text = med.productName;
+      _selectedGlobalMed = med;
+      _showSuggestions = false;
+      _suggestions = [];
+    });
+    _nameFocusNode.unfocus();
   }
 
   Future<void> _pickExpiryDate() async {
@@ -159,13 +262,31 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       _sectionTitle('İlaç Bilgileri'),
                       const SizedBox(height: 16),
 
-                      // ── İlaç Adı
+                      // ── İlaç Adı — TypeAhead arama alanı
                       TextFormField(
                         controller: _nameController,
+                        focusNode: _nameFocusNode,
+                        onChanged: _onNameChanged,
                         decoration: _inputDecoration(
                           label: 'İlaç Adı',
-                          hint: 'ör. Aspirin, Augmentin...',
+                          hint: 'ör. Aspirin, Augmentin... (aramak için yazın)',
                           icon: Icons.medication_rounded,
+                        ).copyWith(
+                          suffixIcon: _isSearching
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                )
+                              : (_selectedGlobalMed != null
+                                  ? const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: Colors.green,
+                                    )
+                                  : null),
                         ),
                         validator: (v) {
                           if (v == null || v.trim().isEmpty) {
@@ -174,6 +295,20 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                           return null;
                         },
                       ),
+
+                      // ── Öneri listesi (TypeAhead dropdown)
+                      if (_showSuggestions)
+                        _SuggestionDropdown(
+                          suggestions: _suggestions,
+                          isSearching: _isSearching,
+                          scrollCtrl: _suggScrollCtrl,
+                          onSelected: _onSuggestionSelected,
+                        ),
+
+                      // ── Seçili ilaç bilgi çipi (Modül 3 metadata göstergesi)
+                      if (_selectedGlobalMed != null)
+                        _SelectedMedChip(med: _selectedGlobalMed!),
+
                       const SizedBox(height: 16),
 
                       // ── Dozaj Formu
@@ -375,4 +510,224 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         filled: true,
         fillColor: Colors.grey.shade50,
       );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Öneri Dropdown — TypeAhead + Infinite Scroll
+// ──────────────────────────────────────────────────────────────────────────────
+
+class _SuggestionDropdown extends StatelessWidget {
+  const _SuggestionDropdown({
+    required this.suggestions,
+    required this.isSearching,
+    required this.scrollCtrl,
+    required this.onSelected,
+  });
+
+  final List<GlobalMedication> suggestions;
+  final bool isSearching;
+  final ScrollController scrollCtrl;
+  final ValueChanged<GlobalMedication> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 4),
+      constraints: const BoxConstraints(maxHeight: 220),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: colorScheme.primary.withAlpha(120)),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(25),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: ListView.separated(
+              controller: scrollCtrl,
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              itemCount: suggestions.length,
+              separatorBuilder: (_, __) =>
+                  Divider(height: 1, color: Colors.grey.shade200),
+              itemBuilder: (context, index) {
+                final med = suggestions[index];
+                return InkWell(
+                  onTap: () => onSelected(med),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.medication_liquid_rounded,
+                          size: 18,
+                          color: colorScheme.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                med.productName,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (med.activeIngredient != null)
+                                Text(
+                                  med.activeIngredient!,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (med.atcCode != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              med.atcCode!,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onPrimaryContainer,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // Sonsuz kaydırma yükleme göstergesi
+          if (isSearching && suggestions.isNotEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Seçili İlaç Bilgi Çipi — Modül 3 metadata göstergesi
+// ──────────────────────────────────────────────────────────────────────────────
+
+class _SelectedMedChip extends StatelessWidget {
+  const _SelectedMedChip({required this.med});
+  final GlobalMedication med;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withAlpha(180),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: colorScheme.primary.withAlpha(80),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.verified_rounded, size: 16, color: colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                if (med.activeIngredient != null)
+                  _InfoBadge(
+                    label: 'Etkin Madde',
+                    value: med.activeIngredient!,
+                    color: colorScheme,
+                  ),
+                if (med.atcCode != null)
+                  _InfoBadge(
+                    label: 'ATC',
+                    value: med.atcCode!,
+                    color: colorScheme,
+                  ),
+                if (med.barcode != null)
+                  _InfoBadge(
+                    label: 'Barkod',
+                    value: med.barcode!,
+                    color: colorScheme,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoBadge extends StatelessWidget {
+  const _InfoBadge({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+  final String label;
+  final String value;
+  final ColorScheme color;
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(fontSize: 11, color: color.onSurface),
+        children: [
+          TextSpan(
+            text: '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: color.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

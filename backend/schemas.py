@@ -192,6 +192,18 @@ class MedicationScheduleResponse(BaseModel):
     dose_logs: List[MedicationScheduleDoseResponse]
 
 
+class GlobalMedicationSearchResult(BaseModel):
+    """Global ilaç arama sonucu — Modül 1 TypeAhead ve Modül 3 etkileşim için."""
+    id: int
+    product_name: str
+    active_ingredient: Optional[str] = None
+    atc_code: Optional[str] = None
+    barcode: Optional[str] = None
+    category_1: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 # ──────────────────────────────────────────────────────
 # Takvim Şemaları
 # ──────────────────────────────────────────────────────
