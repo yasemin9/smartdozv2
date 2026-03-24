@@ -1,0 +1,33 @@
+name: smartdoz
+description: SmartDoz — Akıllı İlaç Takip Sistemi
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP istemcisi
+  http: ^1.2.0
+
+  # Token ve kullanıcı oturumu için yerel depolama (Web destekli)
+  shared_preferences: ^2.2.3
+
+  # Durum yönetimi
+  provider: ^6.1.2
+
+  # Tarih formatlama
+  intl: ^0.19.0
+
+  # Google Fonts (opsiyonel, güzel yazı tipi için)
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
