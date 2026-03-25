@@ -833,13 +833,14 @@ class _InteractionWarningCard extends StatelessWidget {
           const Row(
             children: [
               Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F)),
-              SizedBox(width: 8),
-              Text(
-                'UYARIOLUSTUR',
+              const SizedBox(width: 8),
+              const Text(
+                'Etkileşim Uyarısı',
                 style: TextStyle(
                   color: Color(0xFFB71C1C),
                   fontWeight: FontWeight.w800,
-                  letterSpacing: 0.4,
+                  fontSize: 15,
+                  letterSpacing: 0.3,
                 ),
               ),
             ],
@@ -849,7 +850,7 @@ class _InteractionWarningCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
-                '• ${warning.withMedicationName} ile potansiyel etkileşim: ${warning.description}',
+                '• ${warning.withMedicationName} ile etkileşim tespit edildi: Mevcut tedavinizle birlikte kullanımı risk oluşturabilir. Lütfen doktorunuza danışın.',
                 style: const TextStyle(
                   color: Color(0xFF7F0000),
                   height: 1.35,
@@ -858,40 +859,49 @@ class _InteractionWarningCard extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Wrap(
-              spacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: isBusy ? null : onCancel,
-                  icon: const Icon(Icons.close_rounded),
-                  label: const Text('Vazgeç'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFB71C1C),
-                    side: const BorderSide(color: Color(0xFFB71C1C)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                onPressed: isBusy ? null : onCancel,
+                icon: const Icon(Icons.close_rounded, size: 18),
+                label: const Text('Vazgeç'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.grey.shade700,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: isBusy ? null : onConfirm,
+                icon: isBusy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.check_circle_outline, size: 18),
+                label: const Text(
+                  'Yine de Kaydet',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD32F2F),
+                  foregroundColor: Colors.white,
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
                   ),
                 ),
-                ElevatedButton.icon(
-                  onPressed: isBusy ? null : onConfirm,
-                  icon: isBusy
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.check_circle_outline),
-                  label: const Text('Yine de Kaydet'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD32F2F),
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),

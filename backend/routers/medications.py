@@ -328,9 +328,9 @@ async def _build_interaction_warnings(
             hit = interaction_engine.lookup(new_clean, existing_clean)
             if hit:
                 found_description = hit["description"]
-        
-        if not found_description:
-            # ── Fallback: DrugInteractions tablosunda tam eşleşme ──
+            # Engine yüklüyken sonuç bulunamadıysa bu çift için etkileşim yok — fallback atla
+        else:
+            # ── Fallback: Engine yüklü değilken DrugInteractions tablosunda tam eşleşme ──
             new_tokens = _ingredient_tokens(new_ingredient)
             existing_tokens = _ingredient_tokens(existing_ingredient)
 
