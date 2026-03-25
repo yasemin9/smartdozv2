@@ -1,7 +1,7 @@
 /// SmartDoz - Hatırlatıcı Tercihleri Ekranı
 ///
 /// Kullanıcı uyanma ve uyuma saatlerini belirler.
-/// Bu değerler ZAMANDILIMIHESAPLA algoritmasının girdilerini oluşturur
+/// Bu değerler Zaman Dilimi Hesapla algoritmasının girdilerini oluşturur
 /// (EK1_revize.pdf, Sayfa 37).
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -135,11 +135,11 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                 children: [
                   // ── Bilgi kartı
                   _InfoCard(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
                   // ── Saat seçiciler
                   _SectionTitle(title: 'Günlük Program'),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   _TimePicker(
                     label: 'Uyanma Saati',
                     icon: Icons.wb_sunny_rounded,
@@ -147,7 +147,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                     time: _wakeTime,
                     onTap: () => _pickTime(true),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   _TimePicker(
                     label: 'Uyku Saati',
                     icon: Icons.bedtime_rounded,
@@ -156,7 +156,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                     onTap: () => _pickTime(false),
                   ),
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 16),
 
                   // ── Önizleme
                   _SchedulePreview(
@@ -164,7 +164,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                     sleepTime: _sleepTime,
                   ),
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 16),
 
                   // ── Kaydet butonu
                   SizedBox(
@@ -219,7 +219,7 @@ class _InfoCard extends StatelessWidget {
             const Expanded(
               child: Text(
                 'SmartDoz, uyanma ve uyku saatlerinize göre ilaç alma zamanlarınızı '
-                'otomatik olarak hesaplar (ZAMANDILIMIHESAPLA algoritması).',
+                'otomatik olarak hesaplar (Zaman Dilimi Hesapla algoritması).',
                 style: TextStyle(fontSize: 13, height: 1.4),
               ),
             ),
@@ -308,14 +308,22 @@ class _TimePicker extends StatelessWidget {
 // ────────────────────────────────────────────────────
 // Zamanlama Önizlemesi (1, 2 ve 3 dozluk örnekler)
 // ────────────────────────────────────────────────────
-class _SchedulePreview extends StatelessWidget {
+class _SchedulePreview extends StatefulWidget {
   final TimeOfDay wakeTime;
   final TimeOfDay sleepTime;
   const _SchedulePreview({required this.wakeTime, required this.sleepTime});
 
+  @override
+  State<_SchedulePreview> createState() => _SchedulePreviewState();
+}
+
+class _SchedulePreviewState extends State<_SchedulePreview> {
+  // (exampleIndex, doseIndex) → kullanıcının manuel seçtiği saat
+  final Map<(int, int), String> _overrides = {};
+
   String _calcDoseTime(int doseIndex, int total) {
-    final wakeMin  = wakeTime.hour  * 60 + wakeTime.minute;
-    final sleepMin = sleepTime.hour * 60 + sleepTime.minute;
+    final wakeMin  = widget.wakeTime.hour  * 60 + widget.wakeTime.minute;
+    final sleepMin = widget.sleepTime.hour * 60 + widget.sleepTime.minute;
     final window   = sleepMin > wakeMin
         ? sleepMin - wakeMin
         : (sleepMin + 1440) - wakeMin;
@@ -330,6 +338,29 @@ class _SchedulePreview extends StatelessWidget {
     return '${(doseMin ~/ 60) % 24}:${(doseMin % 60).toString().padLeft(2, '0')}';
   }
 
+  Future<void> _pickDoseTime(int exIdx, int doseIdx, int total) async {
+    final current = _overrides[(exIdx, doseIdx)] ?? _calcDoseTime(doseIdx + 1, total);
+    final parts   = current.split(':');
+    final initial = TimeOfDay(
+      hour:   int.tryParse(parts.isNotEmpty ? parts[0] : '8') ?? 8,
+      minute: int.tryParse(parts.length > 1  ? parts[1] : '0') ?? 0,
+    );
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      helpText: 'Doz Saatini Seç',
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _overrides[(exIdx, doseIdx)] =
+          '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final examples = [
@@ -337,6 +368,7 @@ class _SchedulePreview extends StatelessWidget {
       ('Günde 2 kez', 2),
       ('Günde 3 kez', 3),
     ];
+    final primaryColor = Theme.of(context).colorScheme.primary;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -357,12 +389,15 @@ class _SchedulePreview extends StatelessWidget {
             'Hesaplanan Doz Zamanları (Önizleme)',
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF546E7A)),
           ),
+          const SizedBox(height: 4),
+          const Text(
+            'Kutucuklara dokunarak saati manuel olarak ayarlayabilirsiniz.',
+            style: TextStyle(fontSize: 11, color: Color(0xFF90A4AE)),
+          ),
           const SizedBox(height: 12),
-          ...examples.map((ex) {
-            final times = List.generate(
-              ex.$2,
-              (i) => _calcDoseTime(i + 1, ex.$2),
-            );
+          ...examples.asMap().entries.map((entry) {
+            final exIdx = entry.key;
+            final ex    = entry.value;
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
@@ -371,27 +406,51 @@ class _SchedulePreview extends StatelessWidget {
                     width: 100,
                     child: Text(
                       ex.$1,
-                      style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF546E7A)),
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF546E7A)),
                     ),
                   ),
                   Expanded(
                     child: Wrap(
                       spacing: 8,
-                      children: times
-                          .map(
-                            (t) => Chip(
-                              label: Text(t,
-                                  style: const TextStyle(fontSize: 12)),
-                              padding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
-                              backgroundColor: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withOpacity(0.1),
+                      runSpacing: 6,
+                      children: List.generate(ex.$2, (doseIdx) {
+                        final timeStr    = _overrides[(exIdx, doseIdx)] ?? _calcDoseTime(doseIdx + 1, ex.$2);
+                        final isOverridden = _overrides.containsKey((exIdx, doseIdx));
+                        return InkWell(
+                          onTap: () => _pickDoseTime(exIdx, doseIdx, ex.$2),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isOverridden
+                                  ? primaryColor.withOpacity(0.15)
+                                  : primaryColor.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: isOverridden ? primaryColor : Colors.transparent,
+                                width: 1.5,
+                              ),
                             ),
-                          )
-                          .toList(),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  timeStr,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isOverridden ? FontWeight.w700 : FontWeight.w500,
+                                    color: isOverridden ? primaryColor : const Color(0xFF546E7A),
+                                  ),
+                                ),
+                                if (isOverridden) ...[
+                                  const SizedBox(width: 4),
+                                  Icon(Icons.edit_rounded, size: 10, color: primaryColor),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
                     ),
                   ),
                 ],
