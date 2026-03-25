@@ -9,6 +9,11 @@ class GlobalMedication {
   final String? atcCode;
   final String? barcode;
   final String? category1;
+  final String? category2;
+  final String? category3;
+  final String? category4;
+  final String? category5;
+  final String? description;
 
   const GlobalMedication({
     required this.id,
@@ -17,6 +22,11 @@ class GlobalMedication {
     this.atcCode,
     this.barcode,
     this.category1,
+    this.category2,
+    this.category3,
+    this.category4,
+    this.category5,
+    this.description,
   });
 
   factory GlobalMedication.fromJson(Map<String, dynamic> json) {
@@ -27,6 +37,11 @@ class GlobalMedication {
       atcCode: json['atc_code'] as String?,
       barcode: json['barcode'] as String?,
       category1: json['category_1'] as String?,
+      category2: json['category_2'] as String?,
+      category3: json['category_3'] as String?,
+      category4: json['category_4'] as String?,
+      category5: json['category_5'] as String?,
+      description: json['description'] as String?,
     );
   }
 

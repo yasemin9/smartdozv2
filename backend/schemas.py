@@ -6,7 +6,7 @@ Tüm API giriş/çıkış veri yapıları burada tanımlanır.
 from datetime import date, datetime, time
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ──────────────────────────────────────────────────────
@@ -74,6 +74,9 @@ class MedicationCreate(BaseModel):
     usage_frequency: str
     usage_time: str
     expiry_date: date
+    active_ingredient: Optional[str] = None
+    atc_code: Optional[str] = None
+    barcode: Optional[str] = None
 
     @field_validator("name")
     @classmethod
@@ -98,6 +101,27 @@ class MedicationUpdate(BaseModel):
     usage_frequency: Optional[str] = None
     usage_time: Optional[str] = None
     expiry_date: Optional[date] = None
+    active_ingredient: Optional[str] = None
+    atc_code: Optional[str] = None
+    barcode: Optional[str] = None
+
+
+class InteractionWarningResponse(BaseModel):
+    """UYARIOLUSTUR formatında gösterilecek etkileşim uyarısı."""
+    with_medication_name: str
+    description: str
+
+
+class CriticalInteractionWarningResponse(BaseModel):
+    """Algoritma 2 — deterministik ikili ATC etkileşim uyarısı."""
+    risk_level: str  # YUKSEK_SEVIYE
+    title: str
+    message: str
+    medication_a: str
+    medication_b: str
+    atc_a: str
+    atc_b: str
+    description: str
 
 
 class MedicationResponse(BaseModel):
@@ -109,6 +133,10 @@ class MedicationResponse(BaseModel):
     usage_frequency: str
     usage_time: str
     expiry_date: date
+    active_ingredient: Optional[str] = None
+    atc_code: Optional[str] = None
+    barcode: Optional[str] = None
+    interaction_warnings: List[InteractionWarningResponse] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -200,8 +228,48 @@ class GlobalMedicationSearchResult(BaseModel):
     atc_code: Optional[str] = None
     barcode: Optional[str] = None
     category_1: Optional[str] = None
+    category_2: Optional[str] = None
+    category_3: Optional[str] = None
+    category_4: Optional[str] = None
+    category_5: Optional[str] = None
+    description: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+# ──────────────────────────────────────────────────────
+# Modül 3 — İlaç Etkileşim Şemaları
+# ──────────────────────────────────────────────────────
+
+class DrugInfo(BaseModel):
+    """Etkileşim kontrolüne gönderilecek ilaç bilgisi."""
+    name: Optional[str] = None
+    atc_code: Optional[str] = None
+    active_ingredient: Optional[str] = None
+    barcode: Optional[str] = None
+
+
+class InteractionCheckRequest(BaseModel):
+    """POST /interactions/check-interaction istek gövdesi."""
+    new_drug: DrugInfo
+    existing_drugs: List[DrugInfo]
+
+
+class InteractionResult(BaseModel):
+    """Tek bir ilaç çifti için etkileşim sonucu."""
+    with_drug_name: str
+    risk_level: str          # YUKSEK | ORTA | DUSUK
+    description: str         # Türkçeye çevrilmiş açıklama
+    matched_by: str          # EXACT | LEVENSHTEIN
+    confidence_score: float  # 0.0 – 1.0
+
+
+class InteractionCheckResponse(BaseModel):
+    """POST /interactions/check-interaction yanıtı."""
+    new_drug_name: str
+    resolved_ingredient: str
+    interactions: List[InteractionResult]
+    has_high_risk: bool
 
 
 # ──────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../models/dose_log.dart';
+import '../models/medication.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 
@@ -51,12 +52,14 @@ class DashboardTabState extends State<DashboardTab>
 
   late Future<List<DoseLog>> _dosesFuture;
   List<DoseLog> _cachedLogs = [];
+  List<CriticalInteractionWarning> _criticalWarnings = const [];
   Timer? _notifTimer;
 
   @override
   void initState() {
     super.initState();
     _loadDoses();
+    _loadCriticalWarnings();
     _startNotificationPolling();
     NotificationService.requestPermission();
   }
@@ -75,6 +78,16 @@ class DashboardTabState extends State<DashboardTab>
       _cachedLogs = list;
       return list;
     });
+  }
+
+  Future<void> _loadCriticalWarnings() async {
+    try {
+      final warnings = await context.read<ApiService>().getCriticalInteractionWarnings();
+      if (!mounted) return;
+      setState(() => _criticalWarnings = warnings);
+    } catch (_) {
+      // Kritik uyarı endpoint'i başarısız olursa ana ekran akışını bozma.
+    }
   }
 
   // ── Her 60 saniyede backend'den yaklaşan dozları polling ile bildir
@@ -289,7 +302,10 @@ class DashboardTabState extends State<DashboardTab>
       appBar: _buildAppBar(user?.firstName ?? ''),
       body: RefreshIndicator(
         color: _kPrimary,
-        onRefresh: () async => setState(_loadDoses),
+        onRefresh: () async {
+          setState(_loadDoses);
+          await _loadCriticalWarnings();
+        },
         child: FutureBuilder<List<DoseLog>>(
           future: _dosesFuture,
           builder: (ctx, snap) {
@@ -314,6 +330,13 @@ class DashboardTabState extends State<DashboardTab>
             return CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
+                if (_criticalWarnings.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: _CriticalInteractionBanner(
+                      warning: _criticalWarnings.first,
+                    ),
+                  ),
+
                 // ── Gecikmiş İlaç Kritik Uyarı Barı (Modül 8 — Davranışsal Sapma)
                 if (overdueLogs.isNotEmpty)
                   SliverToBoxAdapter(
@@ -424,9 +447,75 @@ class DashboardTabState extends State<DashboardTab>
         IconButton(
           icon: const Icon(Icons.refresh_rounded),
           tooltip: 'Yenile',
-          onPressed: () => setState(_loadDoses),
+          onPressed: () {
+            setState(_loadDoses);
+            _loadCriticalWarnings();
+          },
         ),
       ],
+    );
+  }
+}
+
+class _CriticalInteractionBanner extends StatelessWidget {
+  const _CriticalInteractionBanner({required this.warning});
+
+  final CriticalInteractionWarning warning;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEBEE),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFC62828), width: 1.6),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22C62828),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: _kDanger),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  warning.message,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF8E0000),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${warning.title} • ${warning.riskLevel}',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFB71C1C),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            warning.description,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF6D1B1B),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

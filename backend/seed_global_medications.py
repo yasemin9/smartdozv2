@@ -62,6 +62,11 @@ def _to_global_medication(row: dict) -> GlobalMedication:
         active_ingredient=clean(row.get("Active_Ingredient")),  # Text: sınırsız
         product_name=clean(row.get("Product_Name"), 500) or "Bilinmiyor",
         category_1=clean(row.get("Category_1"), 300),
+        category_2=clean(row.get("Category_2"), 300),
+        category_3=clean(row.get("Category_3"), 300),
+        category_4=clean(row.get("Category_4"), 300),
+        category_5=clean(row.get("Category_5"), 300),
+        description=clean(row.get("Description")),
     )
 
 

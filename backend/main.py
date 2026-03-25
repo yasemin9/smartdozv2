@@ -13,9 +13,11 @@ from datetime import date
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from database import Base, engine
-from routers import calendar, dose_logs, medications, notifications, preferences, users
+from routers import calendar, dose_logs, interactions, medications, notifications, preferences, users
+from services.interaction_engine import interaction_engine
 from services.scheduler import create_daily_dose_logs, setup_scheduler
 
 logger = logging.getLogger(__name__)
@@ -32,15 +34,32 @@ async def lifespan(app: FastAPI):
     # 1. Tablolar
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Legacy DB uyumluluğu: medications tablosuna Modül 3 metadata kolonları eklenir.
+        await conn.execute(
+            text("ALTER TABLE medications ADD COLUMN IF NOT EXISTS active_ingredient TEXT")
+        )
+        await conn.execute(
+            text("ALTER TABLE medications ADD COLUMN IF NOT EXISTS atc_code VARCHAR(20)")
+        )
+        await conn.execute(
+            text("ALTER TABLE medications ADD COLUMN IF NOT EXISTS barcode VARCHAR(50)")
+        )
 
-    # 2. Bugünkü loglar (startup lazy creation)
+    # 2. Modül 3 — İlaç Etkileşim Motoru: CSV'yi startup'ta belleğe yükle
+    try:
+        interaction_engine.load()
+        logger.info("InteractionEngine (Modül 3) başarıyla yüklendi.")
+    except Exception as exc:
+        logger.error(f"InteractionEngine yüklenemedi: {exc}")
+
+    # 3. Bugünkü loglar (startup lazy creation)
     try:
         await create_daily_dose_logs(date.today())
         logger.info("Başlangıç doz logları hazır.")
     except Exception as exc:
         logger.warning(f"Başlangıç doz log oluşturma: {exc}")
 
-    # 3. Zamanlayıcı
+    # 4. Zamanlayıcı
     sched = setup_scheduler()
     sched.start()
     logger.info("APScheduler başlatıldı.")
@@ -53,8 +72,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="SmartDoz API",
-    description="Akıllı İlaç Takip Sistemi — Modül 1 & 2",
-    version="2.0.0",
+    description="Akıllı İlaç Takip Sistemi — Modül 1, 2 & 3",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -82,6 +101,7 @@ app.add_middleware(
 # ── Router'ları kaydet
 app.include_router(users.router)
 app.include_router(medications.router)
+app.include_router(interactions.router)
 app.include_router(calendar.router)
 app.include_router(dose_logs.router)
 app.include_router(preferences.router)

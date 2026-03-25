@@ -73,6 +73,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   String? _selectedUsageTime;
   DateTime? _expiryDate;
   bool _isLoading = false;
+  List<InteractionWarning> _interactionWarnings = const [];
+  Medication? _pendingMedication;
 
   @override
   void initState() {
@@ -161,6 +163,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       _selectedGlobalMed = med;
       _showSuggestions = false;
       _suggestions = [];
+      _interactionWarnings = const [];
     });
     _nameFocusNode.unfocus();
   }
@@ -194,9 +197,32 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         usageFrequency: _selectedFrequency!,
         usageTime: _selectedUsageTime!,
         expiryDate: _expiryDate!,
+        activeIngredient: _selectedGlobalMed?.activeIngredient,
+        atcCode: _selectedGlobalMed?.atcCode,
+        barcode: _selectedGlobalMed?.barcode,
       );
 
-      await context.read<ApiService>().createMedication(medication);
+      final api = context.read<ApiService>();
+      final warnings = await api.previewMedicationInteractions(medication);
+
+      if (warnings.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _pendingMedication = medication;
+            _interactionWarnings = warnings;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Etkileşim riski bulundu. Lütfen onay verin.'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
+      await api.createMedication(medication);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -215,6 +241,43 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _confirmSaveDespiteWarnings() async {
+    final pending = _pendingMedication;
+    if (pending == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await context.read<ApiService>().createMedication(pending);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('İlaç etkileşim uyarısı onayı ile kaydedildi.'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } on ApiException catch (e) {
+      _showError(e.message);
+    } catch (_) {
+      _showError('İlaç kaydedilemedi. Bağlantıyı kontrol edin.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _cancelSaveDueToWarnings() {
+    setState(() {
+      _interactionWarnings = const [];
+      _pendingMedication = null;
+    });
   }
 
   void _showError(String message) {
@@ -308,6 +371,15 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       // ── Seçili ilaç bilgi çipi (Modül 3 metadata göstergesi)
                       if (_selectedGlobalMed != null)
                         _SelectedMedChip(med: _selectedGlobalMed!),
+
+                      // ── Modül 3: UYARIOLUSTUR kırmızı kartı
+                      if (_interactionWarnings.isNotEmpty)
+                        _InteractionWarningCard(
+                          warnings: _interactionWarnings,
+                          onConfirm: _confirmSaveDespiteWarnings,
+                          onCancel: _cancelSaveDueToWarnings,
+                          isBusy: _isLoading,
+                        ),
 
                       const SizedBox(height: 16),
 
@@ -724,6 +796,101 @@ class _InfoBadge extends StatelessWidget {
             style: TextStyle(
               fontWeight: FontWeight.w700,
               color: color.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InteractionWarningCard extends StatelessWidget {
+  const _InteractionWarningCard({
+    required this.warnings,
+    required this.onConfirm,
+    required this.onCancel,
+    required this.isBusy,
+  });
+
+  final List<InteractionWarning> warnings;
+  final VoidCallback onConfirm;
+  final VoidCallback onCancel;
+  final bool isBusy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: 12, bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEBEE),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD32F2F), width: 1.4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F)),
+              SizedBox(width: 8),
+              Text(
+                'UYARIOLUSTUR',
+                style: TextStyle(
+                  color: Color(0xFFB71C1C),
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (final warning in warnings)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                '• ${warning.withMedicationName} ile potansiyel etkileşim: ${warning.description}',
+                style: const TextStyle(
+                  color: Color(0xFF7F0000),
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: isBusy ? null : onCancel,
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('Vazgeç'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFB71C1C),
+                    side: const BorderSide(color: Color(0xFFB71C1C)),
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: isBusy ? null : onConfirm,
+                  icon: isBusy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check_circle_outline),
+                  label: const Text('Yine de Kaydet'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD32F2F),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

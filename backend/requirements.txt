@@ -12,3 +12,6 @@ alembic>=1.13.0
 # Modül 2: Zamanlayıcı (APScheduler simulates RabbitMQ async structure)
 apscheduler>=3.10.4
 pytz>=2024.1
+# Modül 3: İlaç Etkileşim Motoru
+pandas>=2.2.0
+rapidfuzz>=3.5.0

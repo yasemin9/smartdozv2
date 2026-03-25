@@ -59,6 +59,10 @@ class Medication(Base):
     usage_frequency: Mapped[str] = mapped_column(String(100), nullable=False)
     usage_time: Mapped[str] = mapped_column(String(100), nullable=False)
     expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # Modül 3 etkileşim kontrolünde kullanılacak ek metadata
+    active_ingredient: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    atc_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    barcode: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="medications")
     dose_logs: Mapped[list["DoseLog"]] = relationship(
@@ -141,6 +145,11 @@ class GlobalMedication(Base):
     active_ingredient: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     product_name: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
     category_1: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    category_2: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    category_3: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    category_4: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    category_5: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:
-        return f"<DoseLog id={self.id} med={self.medication_id} status={self.status!r}>"
+        return f"<GlobalMedication id={self.id} product_name={self.product_name!r}>"

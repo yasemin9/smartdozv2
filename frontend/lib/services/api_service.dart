@@ -185,6 +185,26 @@ class ApiService extends ChangeNotifier {
     throw ApiException(_extractDetail(_parseBody(response)));
   }
 
+  /// Yeni ilaç için etkileşim ön kontrolü yapar (kaydetmeden).
+  Future<List<InteractionWarning>> previewMedicationInteractions(
+    Medication medication,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$_kBaseUrl/medications/interactions/check'),
+      headers: _authHeaders,
+      body: jsonEncode(medication.toJson()),
+    );
+
+    if (response.statusCode == 200) {
+      final list = _parseBody(response) as List<dynamic>;
+      return list
+          .map((e) => InteractionWarning.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Etkileşim ön kontrolü yapılamadı.');
+  }
+
   /// Global ilaç kataloğunda arama yapar (TypeAhead + Infinite Scroll).
   ///
   /// [query]  Kullanıcının yazdığı metin (min 2 karakter).
@@ -208,6 +228,22 @@ class ApiService extends ChangeNotifier {
       final list = _parseBody(response) as List<dynamic>;
       return list
           .map((e) => GlobalMedication.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    return [];
+  }
+
+  /// Ana sayfa için kritik ikili etkileşim uyarılarını döner.
+  Future<List<CriticalInteractionWarning>> getCriticalInteractionWarnings() async {
+    final response = await http.get(
+      Uri.parse('$_kBaseUrl/medications/interactions/critical'),
+      headers: _authHeaders,
+    );
+    if (response.statusCode == 200) {
+      final list = _parseBody(response) as List<dynamic>;
+      return list
+          .map((e) => CriticalInteractionWarning.fromJson(e as Map<String, dynamic>))
           .toList();
     }
     if (response.statusCode == 401) await _handleUnauthorized();
