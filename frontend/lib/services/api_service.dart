@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/medication_summary.dart';
 import '../models/ocr_result.dart';
 
 import '../models/dose_log.dart';
@@ -560,6 +561,48 @@ class ApiService extends ChangeNotifier {
 
   // ────────────────────────────────────────────────  // Yardımcı
   // ────────────────────────────────────────────────────
+
+  // ────────────────────────────────────────────────
+  // Modül 5: İlaç Bilgisi Özetleme
+  // ────────────────────────────────────────────────
+
+  /// Kullanıcının ilaç kaydını özetler.
+  Future<MedicationSummary> summarizeMedication(
+    int medicationId, {
+    bool useTransformers = true,
+  }) async {
+    final uri = Uri.parse(
+      '$_kBaseUrl/summarize/medication/$medicationId'
+      '?use_transformers=$useTransformers',
+    );
+    final response = await http.get(uri, headers: _authHeaders);
+    if (response.statusCode == 200) {
+      return MedicationSummary.fromJson(
+        _parseBody(response) as Map<String, dynamic>,
+      );
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
+  /// Global katalogdaki ilaç kaydını özetler.
+  Future<MedicationSummary> summarizeGlobalMedication(
+    int globalMedId, {
+    bool useTransformers = true,
+  }) async {
+    final uri = Uri.parse(
+      '$_kBaseUrl/summarize/global/$globalMedId'
+      '?use_transformers=$useTransformers',
+    );
+    final response = await http.get(uri, headers: _authHeaders);
+    if (response.statusCode == 200) {
+      return MedicationSummary.fromJson(
+        _parseBody(response) as Map<String, dynamic>,
+      );
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
 
   String _extractDetail(dynamic data) {
     if (data is Map<String, dynamic>) {

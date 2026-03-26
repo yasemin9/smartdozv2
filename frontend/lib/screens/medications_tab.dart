@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../models/medication.dart';
+import '../screens/medication_info_screen.dart';
 import '../services/api_service.dart';
 import 'add_medication_screen.dart';
 import 'ocr_scan_screen.dart';
@@ -333,86 +334,127 @@ class _MedicationCard extends StatelessWidget {
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // İkon
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: isExpired
-                      ? _kDanger.withValues(alpha: 0.1)
-                      : _kPrimary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  Icons.medication_rounded,
-                  color: isExpired ? _kDanger : _kPrimary,
-                  size: 26,
-                ),
-              ),
-              const SizedBox(width: 14),
+              // ── Üst satır: ikon + ilaç bilgisi + sil ──────────
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // İkon
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: isExpired
+                          ? _kDanger.withValues(alpha: 0.1)
+                          : _kPrimary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      Icons.medication_rounded,
+                      color: isExpired ? _kDanger : _kPrimary,
+                      size: 26,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
 
-              // Bilgi
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      medication.name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: _kTextDark,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
+                  // Bilgi
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _InfoChip(
-                            label: medication.dosageForm,
-                            color: _kPrimary),
-                        const SizedBox(width: 6),
-                        _InfoChip(
-                            label: medication.usageFrequency,
-                            color: _kTextMid),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(
-                          isExpired
-                              ? Icons.warning_amber_rounded
-                              : Icons.calendar_today_rounded,
-                          size: 13,
-                          color: isExpired ? _kDanger : _kTextMid,
-                        ),
-                        const SizedBox(width: 4),
                         Text(
-                          'SKT: $expiry',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color:
-                                isExpired ? _kDanger : _kTextMid,
-                            fontWeight: isExpired
-                                ? FontWeight.w600
-                                : FontWeight.normal,
+                          medication.name,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: _kTextDark,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            _InfoChip(
+                                label: medication.dosageForm,
+                                color: _kPrimary),
+                            const SizedBox(width: 6),
+                            _InfoChip(
+                                label: medication.usageFrequency,
+                                color: _kTextMid),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              isExpired
+                                  ? Icons.warning_amber_rounded
+                                  : Icons.calendar_today_rounded,
+                              size: 13,
+                              color: isExpired ? _kDanger : _kTextMid,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'SKT: $expiry',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isExpired ? _kDanger : _kTextMid,
+                                fontWeight: isExpired
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+
+                  // Sil butonu
+                  IconButton(
+                    icon: Icon(Icons.delete_outline_rounded,
+                        color: Colors.grey.shade400),
+                    onPressed: onDelete,
+                    tooltip: 'Sil',
+                  ),
+                ],
               ),
 
-              // Sil butonu
-              IconButton(
-                icon: Icon(Icons.delete_outline_rounded,
-                    color: Colors.grey.shade400),
-                onPressed: onDelete,
-                tooltip: 'Sil',
+              const SizedBox(height: 12),
+
+              // ── Tam genişlik AI özet butonu ─────────────────────
+              SizedBox(
+                width: double.infinity,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1565C0), Color(0xFF1A237E)],
+                    ),
+                  ),
+                  child: ElevatedButton.icon(
+                    onPressed: () => MedicationInfoScreen.showSheet(
+                      context,
+                      medicationId: medication.id,
+                      medicationName: medication.name,
+                    ),
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+                    label: const Text('SmartDoz Yapay Zeka Özeti'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.white,
+                      shadowColor: Colors.transparent,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      textStyle: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 13),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

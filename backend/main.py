@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from database import Base, engine
-from routers import analytics, ai_interventions, calendar, dose_logs, interactions, medications, notifications, ocr, preferences, users
+from routers import analytics, ai_interventions, calendar, dose_logs, interactions, medications, notifications, ocr, preferences, summarize, users
 from services.decision_engine import decision_engine as ai_decision_engine
 from services.interaction_engine import interaction_engine
 from services.scheduler import create_daily_dose_logs, setup_scheduler
@@ -124,6 +124,7 @@ app.include_router(dose_logs.router)
 app.include_router(preferences.router)
 app.include_router(notifications.router)
 app.include_router(ai_interventions.router)
+app.include_router(summarize.router)
 
 
 @app.get("/health", tags=["Sistem"])

@@ -20,3 +20,10 @@ opencv-python-headless>=4.9.0
 pytesseract>=0.3.10
 # Modül 4: Alternatif OCR — Google Cloud Vision (isteğe bağlı)
 # google-cloud-vision>=3.7.0
+# Modül 5: YZ Tabanlı İlaç Özetleme — Hugging Face Transformers
+transformers>=4.38.0
+torch>=2.2.0  # CPU build; GPU için: torch>=2.2.0+cu121
+sentencepiece>=0.1.99
+protobuf>=4.25.0
+# Modül 5: LLM özetleme — Groq API (openai SDK, Groq ile uyumludur)
+openai>=1.14.0

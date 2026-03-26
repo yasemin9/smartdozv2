@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/medication.dart';
+import '../screens/medication_info_screen.dart';
 
 class MedicationCard extends StatelessWidget {
   final Medication medication;
@@ -140,12 +141,31 @@ class MedicationCard extends StatelessWidget {
               ),
             ),
 
-            // ── Sil butonu
-            IconButton(
-              onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline_rounded),
-              color: Colors.red.shade400,
-              tooltip: 'İlacı Sil',
+            // ── Aksiyonlar: Bilgi + Sil
+            Column(
+              children: [
+                // İlaç Bilgisi butonu (Modül 5)
+                IconButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MedicationInfoScreen(
+                        medicationId: medication.id,
+                        medicationName: medication.name,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.info_outline_rounded),
+                  color: const Color(0xFF1565C0),
+                  tooltip: 'İlaç Bilgisi & Özet',
+                ),
+                IconButton(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  color: Colors.red.shade400,
+                  tooltip: 'İlacı Sil',
+                ),
+              ],
             ),
           ],
         ),
