@@ -6,6 +6,7 @@ Tablolar:
     medications      — Kullanıcıya ait ilaç kayıtları (FK: users.id)
     user_preferences — Kullanıcı uyku/uyanma tercihleri (FK: users.id)
     dose_logs        — Doz takip kayıtları (FK: medications.id)
+    ai_decisions     — Modül 8: Yapay Zeka müdahale kararları (FK: users.id)
 """
 from datetime import date, datetime, time
 from typing import Optional
@@ -155,3 +156,68 @@ class GlobalMedication(Base):
 
     def __repr__(self) -> str:
         return f"<GlobalMedication id={self.id} product_name={self.product_name!r}>"
+
+
+class AIDecision(Base):
+    """
+    Modül 8: Yapay Zeka Destekli Müdahale Kararları
+
+    Her otomatik YZ önerisi burada kayıt altına alınır.
+    Kullanıcı onaylayabilir (APPROVED) veya reddedebilir (REJECTED).
+    Kapalı döngü geri bildirim: onaylanan kararlar 7 gün takip edilir.
+
+    decision_type seçenekleri:
+        SCHEDULE_SHIFT   — Hatırlatıcı saatini otomatik kaydır
+        TONE_ADAPT       — Alarm tonunu uyum skoruna göre ayarla
+        DOCTOR_REFERRAL  — Klinik risk; doktora yönlendir
+        GAMIFICATION     — Başarısız müdahale sonrası oyunlaştırma
+
+    status seçenekleri:
+        PENDING  — Kullanıcı henüz karar vermedi
+        APPROVED — Kullanıcı onayladı
+        REJECTED — Kullanıcı reddetti
+        EXPIRED  — Kullanıcı 48 saat içinde yanıt vermedi
+
+    outcome (kapalı döngü):
+        SUCCESS  — 7 günlük takipte uyum iyileşti
+        FAILURE  — 7 günlük takipte iyileşme görülmedi
+    """
+    __tablename__ = "ai_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    medication_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("medications.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    # Karar tipi
+    decision_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Zaman penceresi: morning | noon | evening | all
+    time_window: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # XAI: kullanıcıya gösterilecek doğal dil açıklaması
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    # Müdahale detayları — JSON: {"delta_minutes": 15, "window": "morning"}
+    payload: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Durum
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    # Kapalı döngü geri bildirim sonucu
+    outcome: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # Zaman damgaları
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    tracking_start: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    tracking_end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship("User")
+    medication: Mapped[Optional["Medication"]] = relationship("Medication")
+
+    def __repr__(self) -> str:
+        return (
+            f"<AIDecision id={self.id} type={self.decision_type!r} "
+            f"status={self.status!r} user_id={self.user_id}>"
+        )

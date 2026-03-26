@@ -348,3 +348,72 @@ class BehavioralDeviationResponse(BaseModel):
     missed_by_day: List[MissedDaySlot]     # Güne göre en çok kaçırılan dilimler
     peak_miss_hour: Optional[int] = None   # En çok kaçırılan saat
     peak_miss_day: Optional[str] = None    # En çok kaçırılan gün adı
+
+
+# ──────────────────────────────────────────────────────
+# Modül 8 — YZ Destekli Akıllı Özellikler Şemaları
+# ──────────────────────────────────────────────────────
+
+class TimeWindowScore(BaseModel):
+    """Bir zaman penceresi için lokal uyum skoru."""
+    window: str          # morning | noon | evening
+    label: str           # Sabah | Öğle | Akşam
+    planned: int
+    taken: int
+    local_score: float   # 0.0 – 1.0
+    consecutive_skips: int
+
+
+class BehaviorProfile(BaseModel):
+    """Kullanıcının YZ tarafından belirlenen davranış profili."""
+    profile_type: str       # Sabah Tipi | Akşam Tipi | Düzenli Kullanıcı | Sistematik Sapma | Gelişiyor
+    profile_icon: str       # emoji veya icon adı
+    description: str        # Kullanıcıya gösterilen profil açıklaması
+    overall_score: float    # 0.0 – 1.0
+    window_scores: List[TimeWindowScore]
+
+
+class AIDecisionResponse(BaseModel):
+    """Bir YZ müdahale kararının tam detayı."""
+    id: int
+    medication_id: Optional[int] = None
+    medication_name: Optional[str] = None
+    decision_type: str      # SCHEDULE_SHIFT | TONE_ADAPT | DOCTOR_REFERRAL | GAMIFICATION
+    time_window: Optional[str] = None
+    explanation: str        # XAI doğal dil açıklaması
+    payload: Optional[dict] = None   # Yapısal detaylar (delta_minutes vb.)
+    status: str             # PENDING | APPROVED | REJECTED | EXPIRED
+    outcome: Optional[str] = None    # SUCCESS | FAILURE | None
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AIDecisionResolve(BaseModel):
+    """Kullanıcının bir karara verdiği yanıt."""
+    status: str   # APPROVED | REJECTED
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        if v not in {"APPROVED", "REJECTED"}:
+            raise ValueError("Geçersiz durum. Seçenekler: APPROVED, REJECTED")
+        return v
+
+
+class AIProfileResponse(BaseModel):
+    """Modül 8 ana yanıtı: Kişisel profil + bekleyen kararlar."""
+    behavior_profile: BehaviorProfile
+    pending_decisions: List[AIDecisionResponse]
+    recent_decisions: List[AIDecisionResponse]
+
+
+class SmartTipResponse(BaseModel):
+    """Modül 8 — Metin tabanlı akıllı ipucu kartı (sadece öneri, hiçbir otomatik eylem yok)."""
+    tip_id: str        # Benzersiz tip türü: YAN_ETKI | UYKU | UNUTMA | LOJISTIK | STOK | ETKILESIM | ISTEKSIZLIK | DUSUK_UYUM | GENEL
+    icon: str          # Emoji ikonu
+    title: str         # Kısa başlık
+    message: str       # Kullanıcıya gösterilecek tavsiye metni
+    xai_reason: str    # XAI: Bu ipucunun neden üretildiğine dair şeffaf açıklama
+    tip_type: str      # REASON_BASED | ADHERENCE_BASED

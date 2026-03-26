@@ -1,7 +1,7 @@
-/// SmartDoz - API Servis Katmanı
-///
-/// Tüm HTTP isteklerini yönetir. ChangeNotifier ile Provider
-/// entegrasyonu sağlar; oturum durumu değiştiğinde UI güncellenir.
+// SmartDoz - API Servis Katmanı
+//
+// Tüm HTTP isteklerini yönetir. ChangeNotifier ile Provider
+// entegrasyonu sağlar; oturum durumu değiştiğinde UI güncellenir.
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -13,6 +13,8 @@ import '../models/global_medication.dart';
 import '../models/medication.dart';
 import '../models/adherence.dart';
 import '../models/behavioral_deviation.dart';
+import '../models/ai_decision.dart';
+import '../models/smart_tip.dart';
 import '../models/user.dart';
 import '../models/user_preference.dart';
 
@@ -418,6 +420,89 @@ class ApiService extends ChangeNotifier {
     }
     if (response.statusCode == 401) await _handleUnauthorized();
     throw const ApiException('Davranışsal sapma verisi alınamadı.');
+  }
+
+  // ──────────────────────────────────────────────────
+  // Modül 8 — YZ Akıllı Özellikler
+  // ──────────────────────────────────────────────────
+
+  /// Kullanıcının YZ davranış profilini ve bekleyen kararları getirir.
+  Future<AIProfile> getAIProfile({int days = 30}) async {
+    final uri = Uri.parse('$_kBaseUrl/ai/profile')
+        .replace(queryParameters: {'days': days.toString()});
+    final response = await http.get(uri, headers: _authHeaders);
+    if (response.statusCode == 200) {
+      return AIProfile.fromJson(_parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('AI profil yüklenemedi.');
+  }
+
+  /// Algoritma 5'i tetikleyerek yeni YZ kararları üretir.
+  Future<List<AIDecision>> generateAIDecisions({int days = 30}) async {
+    final uri = Uri.parse('$_kBaseUrl/ai/decisions/generate')
+        .replace(queryParameters: {'days': days.toString()});
+    final response = await http.post(uri, headers: _authHeaders);
+    if (response.statusCode == 201) {
+      final list = _parseBody(response) as List<dynamic>;
+      return list
+          .map((e) => AIDecision.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('YZ kararları üretilemedi.');
+  }
+
+  /// Bekleyen (PENDING) YZ kararlarını listeler.
+  Future<List<AIDecision>> getPendingAIDecisions() async {
+    final response = await http.get(
+      Uri.parse('$_kBaseUrl/ai/decisions/pending'),
+      headers: _authHeaders,
+    );
+    if (response.statusCode == 200) {
+      final list = _parseBody(response) as List<dynamic>;
+      return list
+          .map((e) => AIDecision.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Bekleyen kararlar yüklenemedi.');
+  }
+
+  /// Bir YZ kararını onayla (APPROVED) veya reddet (REJECTED).
+  Future<AIDecision> resolveAIDecision({
+    required int decisionId,
+    required String status, // 'APPROVED' | 'REJECTED'
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_kBaseUrl/ai/decisions/$decisionId/resolve'),
+      headers: _authHeaders,
+      body: jsonEncode({'status': status}),
+    );
+    if (response.statusCode == 200) {
+      return AIDecision.fromJson(
+          _parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    if (response.statusCode == 404) {
+      throw ApiException(_extractDetail(_parseBody(response)));
+    }
+    throw const ApiException('Karar çözümlenemedi.');
+  }
+
+  /// Metin tabanlı akıllı ipucu kartlarını getirir (sadece öneri, hiçbir otomatik eylem yok).
+  Future<List<SmartTip>> getSmartTips({int days = 7}) async {
+    final uri = Uri.parse('$_kBaseUrl/ai/tips')
+        .replace(queryParameters: {'days': days.toString()});
+    final response = await http.get(uri, headers: _authHeaders);
+    if (response.statusCode == 200) {
+      final list = _parseBody(response) as List<dynamic>;
+      return list
+          .map((e) => SmartTip.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Akıllı ipuçları yüklenemedi.');
   }
 
   // ────────────────────────────────────────────────────

@@ -1,16 +1,18 @@
-/// SmartDoz - Ana Uygulama Kabuğu (Modül 1 + 2)
-///
-/// 4 sekmeli NavigationBar ile tüm ekranları yönetir.
-/// IndexedStack sayesinde sekme geçişlerinde state (scroll, yüklü veri)
-/// korunur — kullanıcı her seferinde yeniden yükleme beklemiyor.
-///
-/// Sekmeler:
-///   0 → DashboardTab   – Günün özeti & çizelgesi
-///   1 → CalendarScreen – Aylık & geçmiş takvim
-///   2 → MedicationsTab – İlaç listesi & ekleme
-///   3 → ProfileTab     – Kullanıcı & tercihler
+// SmartDoz - Ana Uygulama Kabuğu (Modül 1–8)
+//
+// 5 sekmeli NavigationBar ile tüm ekranları yönetir.
+// IndexedStack sayesinde sekme geçişlerinde state (scroll, yüklü veri)
+// korunur — kullanıcı her seferinde yeniden yükleme beklemiyor.
+//
+// Sekmeler:
+//   0 → DashboardTab    – Günün özeti & çizelgesi
+//   1 → CalendarScreen  – Aylık & geçmiş takvim
+//   2 → MedicationsTab  – İlaç listesi & ekleme
+//   3 → AIProfileScreen – Modül 8: YZ Akıllı Profil & Kararlar
+//   4 → ProfileTab      – Kullanıcı & tercihler
 import 'package:flutter/material.dart';
 
+import 'ai_profile_screen.dart';
 import 'calendar_screen.dart';
 import 'dashboard_tab.dart';
 import 'medications_tab.dart';
@@ -42,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // Yeni ilaç eklendi → bugünün doz çizelgesini yenile
         _dashboardKey.currentState?.refresh();
       }),
+      const AIProfileScreen(),
       const ProfileTab(),
     ];
   }
@@ -79,6 +82,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.medication_outlined),
             selectedIcon: Icon(Icons.medication_rounded),
             label: 'İlaçlarım',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.psychology_outlined),
+            selectedIcon: Icon(Icons.psychology_rounded),
+            label: 'Akıllı',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline_rounded),

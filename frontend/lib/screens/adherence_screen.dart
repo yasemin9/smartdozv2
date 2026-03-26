@@ -22,23 +22,25 @@ class _AdherenceScreenState extends State<AdherenceScreen> {
   late Future<BehavioralDeviation> _deviationFuture;
   int _selectedDays = 30;
   int? _touchedIndex;
+  late ApiService _apiService;
 
   static const _periodOptions = [7, 14, 30, 90];
 
   @override
   void initState() {
     super.initState();
+    _apiService = context.read<ApiService>();
     _load();
     // ApiService bir doz güncellendiğinde (updateDoseStatus → notifyListeners)
     // bu ekran otomatik olarak yenilenir.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ApiService>().addListener(_onDoseUpdated);
+      _apiService.addListener(_onDoseUpdated);
     });
   }
 
   @override
   void dispose() {
-    context.read<ApiService>().removeListener(_onDoseUpdated);
+    _apiService.removeListener(_onDoseUpdated);
     super.dispose();
   }
 
@@ -47,10 +49,10 @@ class _AdherenceScreenState extends State<AdherenceScreen> {
   }
 
   void _load() {
-    _summaryFuture = context.read<ApiService>().getAdherenceSummary(
+    _summaryFuture = _apiService.getAdherenceSummary(
           days: _selectedDays,
         );
-    _deviationFuture = context.read<ApiService>().getBehavioralDeviation(
+    _deviationFuture = _apiService.getBehavioralDeviation(
           days: _selectedDays,
         );
   }
