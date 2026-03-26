@@ -30,6 +30,9 @@ dependencies:
   # Modül 7: İnteraktif grafik (MPR çizgi grafiği)
   fl_chart: ^0.69.0
 
+  # Modül 4: OCR — Kamera ve galeri erişimi
+  image_picker: ^1.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -44,7 +44,10 @@ const List<String> kUsageTimes = [
 ];
 
 class AddMedicationScreen extends StatefulWidget {
-  const AddMedicationScreen({super.key});
+  const AddMedicationScreen({super.key, this.prefillName});
+
+  /// OCR ekranından gelen önceden dolu ilaç adı (Modül 4).
+  final String? prefillName;
 
   @override
   State<AddMedicationScreen> createState() => _AddMedicationScreenState();
@@ -79,6 +82,10 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   @override
   void initState() {
     super.initState();
+    // Modül 4: OCR ekranından gelen prefilled ilaç adını uygula
+    if (widget.prefillName != null && widget.prefillName!.isNotEmpty) {
+      _nameController.text = widget.prefillName!;
+    }
     // Sonsuz kaydırma: listenin altına yakınılacakta daha fazla yükle
     _suggScrollCtrl.addListener(() {
       final pos = _suggScrollCtrl.position;

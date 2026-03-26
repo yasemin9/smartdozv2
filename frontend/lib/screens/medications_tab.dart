@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../models/medication.dart';
 import '../services/api_service.dart';
 import 'add_medication_screen.dart';
+import 'ocr_scan_screen.dart';
 
 // ── Renk sabitleri (Dashboard ile aynı paletit)
 const _kPrimary  = Color(0xFF1565C0);
@@ -156,13 +157,33 @@ class _MedicationsTabState extends State<MedicationsTab>
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _navigateToAdd,
-        backgroundColor: _kPrimary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('İlaç Ekle',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Modül 4: OCR ile kutu tara
+          FloatingActionButton(
+            heroTag: 'ocr_scan_fab',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const OcrScanScreen()),
+            ),
+            backgroundColor: const Color(0xFF00897B),
+            foregroundColor: Colors.white,
+            tooltip: 'Kutu ile Tara (OCR)',
+            child: const Icon(Icons.document_scanner_rounded),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'add_med_fab',
+            onPressed: _navigateToAdd,
+            backgroundColor: _kPrimary,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('İlaç Ekle',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         color: _kPrimary,

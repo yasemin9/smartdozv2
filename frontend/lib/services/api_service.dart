@@ -3,10 +3,14 @@
 // Tüm HTTP isteklerini yönetir. ChangeNotifier ile Provider
 // entegrasyonu sağlar; oturum durumu değiştiğinde UI güncellenir.
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../models/ocr_result.dart';
 
 import '../models/dose_log.dart';
 import '../models/global_medication.dart';
@@ -505,8 +509,56 @@ class ApiService extends ChangeNotifier {
     throw const ApiException('Akıllı ipuçları yüklenemedi.');
   }
 
-  // ────────────────────────────────────────────────────
-  // Yardımcı
+  // ────────────────────────────────────────────────────  // Modül 4 — OCR İlaç Tanıma
+  // ────────────────────────────────────────────────
+
+  /// İlaç kutusu görüntüsünü backend'e gönderir;
+  /// Algoritma 3 (Levenshtein) üzerinden benzerlik ≥ %85 adayları döndürür.
+  Future<OcrScanResult> scanMedication({
+    required Uint8List imageBytes,
+    required String fileName,
+    required String mimeType,
+  }) async {
+    if (_token == null) {
+      throw const ApiException('Oturum bulunamadı. Lütfen giriş yapın.');
+    }
+
+    final uri = Uri.parse('$_kBaseUrl/ocr/scan');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $_token'
+      ..files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          imageBytes,
+          filename: fileName,
+          contentType: MediaType.parse(mimeType),
+        ),
+      );
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+
+    final bodyStr = utf8.decode(response.bodyBytes);
+
+    if (response.statusCode == 200) {
+      if (bodyStr.isEmpty) throw const ApiException('Sunucudan boş yanıt alındı.');
+      return OcrScanResult.fromJson(
+          jsonDecode(bodyStr) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+
+    // Hata yanıtı: JSON ayrıştırılamasa bile açıklayıcı mesaj göster
+    if (bodyStr.isNotEmpty) {
+      try {
+        throw ApiException(_extractDetail(jsonDecode(bodyStr)));
+      } on ApiException {
+        rethrow;
+      } catch (_) {}
+    }
+    throw ApiException('Sunucu hatası (HTTP ${response.statusCode}).');
+  }
+
+  // ────────────────────────────────────────────────  // Yardımcı
   // ────────────────────────────────────────────────────
 
   String _extractDetail(dynamic data) {

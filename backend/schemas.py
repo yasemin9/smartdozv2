@@ -417,3 +417,33 @@ class SmartTipResponse(BaseModel):
     message: str       # Kullanıcıya gösterilecek tavsiye metni
     xai_reason: str    # XAI: Bu ipucunun neden üretildiğine dair şeffaf açıklama
     tip_type: str      # REASON_BASED | ADHERENCE_BASED
+
+
+# ──────────────────────────────────────────────────────
+# Modül 4 — OCR İlaç Tanıma Şemaları
+# ──────────────────────────────────────────────────────
+
+class OCRMatchCandidate(BaseModel):
+    """
+    Algoritma 3 — Levenshtein sonucu: tek bir aday eşleşme.
+
+    Alanlar:
+        medication_name: global_medications tablosundaki orijinal ürün adı.
+        similarity:      Levenshtein benzerlik oranı [0.0, 1.0].
+                         1.0 = tam eşleşme, 0.85 = minimum kabul edilen eşik.
+    """
+    medication_name: str
+    similarity: float = Field(..., ge=0.0, le=1.0)
+
+
+class OCRScanResponse(BaseModel):
+    """
+    POST /ocr/scan endpoint yanıtı.
+
+    Alanlar:
+        ocr_raw_text: OCR'dan çıkan ham metin (temizlenmiş).
+        candidates:   Levenshtein ≥ %85 olan adaylar, azalan benzerlik sırasında.
+                      Boş liste: OCR metin bulamadı veya eşik geçen ilaç yok.
+    """
+    ocr_raw_text: str
+    candidates: List[OCRMatchCandidate]

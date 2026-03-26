@@ -15,3 +15,8 @@ pytz>=2024.1
 # Modül 3: İlaç Etkileşim Motoru
 pandas>=2.2.0
 rapidfuzz>=3.5.0
+# Modül 4: OCR — Görüntü İşleme ve Metin Tanıma
+opencv-python-headless>=4.9.0
+pytesseract>=0.3.10
+# Modül 4: Alternatif OCR — Google Cloud Vision (isteğe bağlı)
+# google-cloud-vision>=3.7.0
