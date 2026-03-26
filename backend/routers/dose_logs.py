@@ -82,6 +82,9 @@ async def update_dose_status(
         )
 
     # Güncelle
+    # Davranış analizi: Ertelendi → terminal geçişinde was_postponed bayrağını koru.
+    if log.status == "Ertelendi" and body.status in {"Alındı", "Atlandı"}:
+        log.was_postponed = True
     log.status = body.status
     if body.notes is not None:
         log.notes = body.notes

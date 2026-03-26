@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/dose_log.dart';
 import '../models/global_medication.dart';
 import '../models/medication.dart';
+import '../models/adherence.dart';
+import '../models/behavioral_deviation.dart';
 import '../models/user.dart';
 import '../models/user_preference.dart';
 
@@ -178,8 +180,10 @@ class ApiService extends ChangeNotifier {
     );
 
     if (response.statusCode == 201) {
-      return Medication.fromJson(
+      final med = Medication.fromJson(
           _parseBody(response) as Map<String, dynamic>);
+      notifyListeners(); // AdherenceScreen ve Dashboard'u güncelle
+      return med;
     }
     if (response.statusCode == 401) await _handleUnauthorized();
     throw ApiException(_extractDetail(_parseBody(response)));
@@ -257,7 +261,10 @@ class ApiService extends ChangeNotifier {
       headers: _authHeaders,
     );
 
-    if (response.statusCode == 204) return;
+    if (response.statusCode == 204) {
+      notifyListeners(); // AdherenceScreen ve ilaç listesini güncelle
+      return;
+    }
     if (response.statusCode == 401) await _handleUnauthorized();
     throw const ApiException('İlaç silinemedi.');
   }
@@ -339,7 +346,9 @@ class ApiService extends ChangeNotifier {
       }),
     );
     if (response.statusCode == 200) {
-      return DoseLog.fromJson(_parseBody(response) as Map<String, dynamic>);
+      final log = DoseLog.fromJson(_parseBody(response) as Map<String, dynamic>);
+      notifyListeners(); // AdherenceScreen ve diğer dinleyicileri tetikle
+      return log;
     }
     if (response.statusCode == 401) await _handleUnauthorized();
     throw ApiException(_extractDetail(_parseBody(response)));
@@ -364,6 +373,51 @@ class ApiService extends ChangeNotifier {
     }
     if (response.statusCode == 401) await _handleUnauthorized();
     throw const ApiException('Bildirimler alınamadı.');
+  }
+
+  // ──────────────────────────────────────────────────
+  // Modül 7 — Analitik
+  // ──────────────────────────────────────────────────
+
+  /// MPR tabanlı uyum özetini alır (son [days] gün).
+  Future<AdherenceSummary> getAdherenceSummary({int days = 30}) async {
+    final uri = Uri.parse('$_kBaseUrl/analytics/adherence')
+        .replace(queryParameters: {'days': days.toString()});
+    final response = await http.get(uri, headers: _authHeaders);
+    if (response.statusCode == 200) {
+      return AdherenceSummary.fromJson(
+          _parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Uyum verisi alınamadı.');
+  }
+
+  /// Belirli bir ilaç için MPR tabanlı uyum özetini döner.
+  Future<AdherenceSummary> getAdherenceSummaryByMedication(
+      int medicationId, {int days = 30}) async {
+    final uri =
+        Uri.parse('$_kBaseUrl/analytics/adherence/$medicationId')
+            .replace(queryParameters: {'days': days.toString()});
+    final response = await http.get(uri, headers: _authHeaders);
+    if (response.statusCode == 200) {
+      return AdherenceSummary.fromJson(
+          _parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('ilaç uyum verisi alınamadı.');
+  }
+
+  /// Davranışsal sapma analizini alır — en çok doz kaçırılan saat/gün.
+  Future<BehavioralDeviation> getBehavioralDeviation({int days = 30}) async {
+    final uri = Uri.parse('$_kBaseUrl/analytics/behavioral-deviation')
+        .replace(queryParameters: {'days': days.toString()});
+    final response = await http.get(uri, headers: _authHeaders);
+    if (response.statusCode == 200) {
+      return BehavioralDeviation.fromJson(
+          _parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Davranışsal sapma verisi alınamadı.');
   }
 
   // ────────────────────────────────────────────────────

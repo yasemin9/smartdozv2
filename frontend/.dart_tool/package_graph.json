@@ -7,6 +7,7 @@
       "name": "smartdoz",
       "version": "1.0.0+1",
       "dependencies": [
+        "fl_chart",
         "flutter",
         "google_fonts",
         "http",
@@ -43,6 +44,14 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "fl_chart",
+      "version": "0.69.2",
+      "dependencies": [
+        "equatable",
+        "flutter"
       ]
     },
     {
@@ -204,6 +213,14 @@
         "stream_channel",
         "string_scanner",
         "term_glyph"
+      ]
+    },
+    {
+      "name": "equatable",
+      "version": "2.0.8",
+      "dependencies": [
+        "collection",
+        "meta"
       ]
     },
     {

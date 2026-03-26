@@ -298,3 +298,53 @@ class MonthlyCalendarResponse(BaseModel):
     year: int
     month: int
     summary: dict[str, DailySummary]
+
+
+# ──────────────────────────────────────────────────────
+# Modül 7 — Analitik Şemaları
+# ──────────────────────────────────────────────────────
+
+class WeeklyTrendPointResponse(BaseModel):
+    """Bir haftaya ait MPR uyum noktası."""
+    week_label: str          # ör. "16/03 - 22/03"
+    week_start: str          # ISO 8601, ör. "2025-03-16"
+    planned: int
+    taken: int
+    skipped: int
+    postponed: int
+    adherence_score: float   # 0.0 – 1.0
+
+
+class AdherenceSummaryResponse(BaseModel):
+    """Son N günlük genel MPR uyum özeti."""
+    period_start: str
+    period_end: str
+    total_planned: int
+    total_taken: int
+    total_skipped: int
+    total_postponed: int
+    adherence_score: float   # 0.0 – 1.0
+    weekly_trend: List[WeeklyTrendPointResponse]
+
+
+class MissedHourSlot(BaseModel):
+    """Belirli bir saate ait atlanmış doz sayısı."""
+    hour: int               # 0–23
+    missed_count: int
+
+
+class MissedDaySlot(BaseModel):
+    """Belirli bir haftanın gününe ait atlanmış doz sayısı."""
+    day_of_week: int        # 0=Pazartesi … 6=Pazar
+    day_name: str           # ör. "Pazartesi"
+    missed_count: int
+
+
+class BehavioralDeviationResponse(BaseModel):
+    """Kullanıcının davranışsal sapma istatistikleri."""
+    period_days: int
+    total_skipped: int
+    missed_by_hour: List[MissedHourSlot]   # Saate göre en çok kaçırılan dilimler
+    missed_by_day: List[MissedDaySlot]     # Güne göre en çok kaçırılan dilimler
+    peak_miss_hour: Optional[int] = None   # En çok kaçırılan saat
+    peak_miss_day: Optional[str] = None    # En çok kaçırılan gün adı

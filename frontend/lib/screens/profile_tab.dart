@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
+import 'adherence_screen.dart';
 import 'login_screen.dart';
 import 'preferences_screen.dart';
 
@@ -103,14 +104,25 @@ class ProfileTab extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const PreferencesScreen()),
             ),
           ),
+          const SizedBox(height: 12),
 
+          _SettingsTile(
+            icon: Icons.show_chart_rounded,
+            iconColor: Colors.indigo,
+            title: 'Uyum Geçmişim',
+            subtitle: 'Haftalık MPR grafiği ve davranışsal sapma analizi',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AdherenceScreen()),
+            ),
+          ),
           const SizedBox(height: 24),
 
           // ── Uygulama Hakkında ─────────────────────────────────
           const _SectionLabel(label: 'ℹ️  Hakkında'),
           const SizedBox(height: 10),
 
-          _SettingsTile(
+          const _SettingsTile(
             icon: Icons.info_outline_rounded,
             iconColor: _kTextMid,
             title: 'SmartDoz v2.0.0',

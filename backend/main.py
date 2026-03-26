@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from database import Base, engine
-from routers import calendar, dose_logs, interactions, medications, notifications, preferences, users
+from routers import analytics, calendar, dose_logs, interactions, medications, notifications, preferences, users
 from services.interaction_engine import interaction_engine
 from services.scheduler import create_daily_dose_logs, setup_scheduler
 
@@ -43,6 +43,10 @@ async def lifespan(app: FastAPI):
         )
         await conn.execute(
             text("ALTER TABLE medications ADD COLUMN IF NOT EXISTS barcode VARCHAR(50)")
+        )
+        # Modül 7: Davranış analizi için was_postponed bayrağı
+        await conn.execute(
+            text("ALTER TABLE dose_logs ADD COLUMN IF NOT EXISTS was_postponed BOOLEAN NOT NULL DEFAULT FALSE")
         )
 
     # 2. Modül 3 — İlaç Etkileşim Motoru: CSV'yi startup'ta belleğe yükle
@@ -102,6 +106,7 @@ app.add_middleware(
 app.include_router(users.router)
 app.include_router(medications.router)
 app.include_router(interactions.router)
+app.include_router(analytics.router)
 app.include_router(calendar.router)
 app.include_router(dose_logs.router)
 app.include_router(preferences.router)

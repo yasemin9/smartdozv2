@@ -27,6 +27,9 @@ dependencies:
   # Modül 2: Takvim bileşeni
   table_calendar: ^3.1.2
 
+  # Modül 7: İnteraktif grafik (MPR çizgi grafiği)
+  fl_chart: ^0.69.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

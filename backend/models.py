@@ -10,7 +10,7 @@ Tablolar:
 from datetime import date, datetime, time
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Integer, Text, Time, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Integer, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -128,6 +128,8 @@ class DoseLog(Base):
     # Bekliyor | Alındı | Atlandı | Ertelendi
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Bekliyor")
     notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Davranış analizi: Ertelendi→Alındı geçişinde True olarak işaretlenir.
+    was_postponed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     medication: Mapped["Medication"] = relationship("Medication", back_populates="dose_logs")
 
