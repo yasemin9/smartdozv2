@@ -6,7 +6,9 @@ Tüm API giriş/çıkış veri yapıları burada tanımlanır.
 from datetime import date, datetime, time
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+import re as _re
+
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
 # ──────────────────────────────────────────────────────
@@ -92,6 +94,22 @@ class MedicationCreate(BaseModel):
         if v < date.today():
             raise ValueError("Son kullanma tarihi geçmişte olamaz.")
         return v
+
+    @model_validator(mode="after")
+    def validate_usage_time_format(self) -> "MedicationCreate":
+        """
+        Saatlik aralık seçildiğinde usage_time alanının
+        HH:MM formatında (00:00-23:59) olmasını zorunlu kılar.
+        Kategorik sıklıklarda (Günde 1 kez vb.) doğrulama yapılmaz.
+        """
+        freq = (self.usage_frequency or "").lower()
+        if "her" in freq and "saat" in freq:
+            if not _re.match(r"^([01]\d|2[0-3]):[0-5]\d$", self.usage_time or ""):
+                raise ValueError(
+                    "Saatlik aralık seçildiğinde 'usage_time' HH:MM formatında "
+                    "olmalıdır (örn: 08:00)."
+                )
+        return self
 
 
 class MedicationUpdate(BaseModel):

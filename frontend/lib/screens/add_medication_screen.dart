@@ -32,7 +32,7 @@ const List<String> kFrequencies = [
   'Gerektiğinde',
 ];
 
-/// Kullanım zamanı önerileri
+/// Kullanım zamanı önerileri (sadece kategorik sıklıklar için)
 const List<String> kUsageTimes = [
   'Sabah',
   'Öğle',
@@ -42,6 +42,24 @@ const List<String> kUsageTimes = [
   'Yemekten sonra',
   'Aç karnına',
 ];
+
+/// Saatlik aralık tabanlı sıklıklar (İlk Doz Saati modunu tetikler)
+const Set<String> kIntervalFrequencies = {
+  'Her 8 saatte bir',
+  'Her 12 saatte bir',
+};
+
+/// Sıklığın saatlik aralık tabanlı olup olmadığını kontrol eder
+bool _isIntervalBased(String? freq) =>
+    freq != null && kIntervalFrequencies.contains(freq);
+
+/// Sıklık metninden saat aralığını çıkarır: 'Her 8 saatte bir' → 8
+int? _extractIntervalHours(String freq) {
+  final match = RegExp(r'\b(\d+)\b').firstMatch(freq);
+  if (match == null) return null;
+  final h = int.tryParse(match.group(1)!);
+  return (h != null && h > 0 && 24 % h == 0) ? h : null;
+}
 
 class AddMedicationScreen extends StatefulWidget {
   const AddMedicationScreen({super.key, this.prefillName});
@@ -73,7 +91,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
   String? _selectedDosageForm;
   String? _selectedFrequency;
-  String? _selectedUsageTime;
+  String? _selectedUsageTime;   // Kategorik: 'Sabah' vb. | Aralıklı: 'HH:MM'
+  TimeOfDay? _firstDoseTime;   // Sadece aralıklı sıklıklar için
   DateTime? _expiryDate;
   bool _isLoading = false;
   List<InteractionWarning> _interactionWarnings = const [];
@@ -192,6 +211,14 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_expiryDate == null) {
       _showError('Lütfen son kullanma tarihini seçin.');
+      return;
+    }
+    if (_isIntervalBased(_selectedFrequency) && _firstDoseTime == null) {
+      _showError('Lütfen ilk doz saatini seçin.');
+      return;
+    }
+    if (!_isIntervalBased(_selectedFrequency) && _selectedUsageTime == null) {
+      _showError('Lütfen kullanım zamanını seçin.');
       return;
     }
 
@@ -414,25 +441,38 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                         icon: Icons.repeat_rounded,
                         value: _selectedFrequency,
                         items: kFrequencies,
-                        onChanged: (v) =>
-                            setState(() => _selectedFrequency = v),
+                        onChanged: (v) {
+                          final wasInterval = _isIntervalBased(_selectedFrequency);
+                          final willBeInterval = _isIntervalBased(v);
+                          setState(() {
+                            _selectedFrequency = v;
+                            // Sıklık türü değiştiğinde zaman seçimini sıfırla
+                            if (wasInterval != willBeInterval) {
+                              _selectedUsageTime = null;
+                              _firstDoseTime = null;
+                            }
+                          });
+                        },
                         validator: (v) =>
                             v == null ? 'Kullanım sıklığı seçiniz.' : null,
                       ),
                       const SizedBox(height: 16),
 
-                      // ── Kullanım Zamanı
-                      _buildDropdown<String>(
-                        label: 'Kullanım Zamanı',
-                        hint: 'Seçin',
-                        icon: Icons.access_time_rounded,
-                        value: _selectedUsageTime,
-                        items: kUsageTimes,
-                        onChanged: (v) =>
-                            setState(() => _selectedUsageTime = v),
-                        validator: (v) =>
-                            v == null ? 'Kullanım zamanı seçiniz.' : null,
-                      ),
+                      // ── Kullanım Zamanı / İlk Doz Saati (bağımlı alan)
+                      if (_isIntervalBased(_selectedFrequency))
+                        _buildFirstDoseTimePicker()
+                      else
+                        _buildDropdown<String>(
+                          label: 'Kullanım Zamanı',
+                          hint: 'Seçin',
+                          icon: Icons.access_time_rounded,
+                          value: _selectedUsageTime,
+                          items: kUsageTimes,
+                          onChanged: (v) =>
+                              setState(() => _selectedUsageTime = v),
+                          validator: (v) =>
+                              v == null ? 'Kullanım zamanı seçiniz.' : null,
+                        ),
                       const SizedBox(height: 24),
 
                       _sectionTitle('Son Kullanma Tarihi'),
@@ -540,6 +580,118 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           letterSpacing: 0.5,
         ),
       );
+
+  /// Saatlik aralıklı sıklık için İlk Doz Saati seçici widget'ı.
+  Widget _buildFirstDoseTimePicker() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final intervalHours = _extractIntervalHours(_selectedFrequency ?? '');
+    final doseCount = intervalHours != null ? 24 ~/ intervalHours : 0;
+
+    // Önizleme: 08:00 → 16:00 → 00:00
+    String preview = '';
+    if (_firstDoseTime != null && intervalHours != null) {
+      final times = List.generate(doseCount, (i) {
+        final totalMin =
+            _firstDoseTime!.hour * 60 + _firstDoseTime!.minute + i * intervalHours * 60;
+        final hh = (totalMin ~/ 60) % 24;
+        final mm = totalMin % 60;
+        return '${hh.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}';
+      });
+      preview = times.join(' → ');
+    }
+
+    return InkWell(
+      onTap: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: _firstDoseTime ?? const TimeOfDay(hour: 8, minute: 0),
+          helpText: 'İlk Doz Saatini Seçin',
+          confirmText: 'Seç',
+          cancelText: 'İptal',
+        );
+        if (picked != null) {
+          final hh = picked.hour.toString().padLeft(2, '0');
+          final mm = picked.minute.toString().padLeft(2, '0');
+          setState(() {
+            _firstDoseTime = picked;
+            _selectedUsageTime = '$hh:$mm'; // DB'ye HH:MM olarak kaydedilir
+          });
+        }
+      },
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: _firstDoseTime == null
+                ? Colors.grey.shade300
+                : colorScheme.primary,
+            width: _firstDoseTime == null ? 1 : 2,
+          ),
+          borderRadius: BorderRadius.circular(14),
+          color: Colors.grey.shade50,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.schedule_rounded,
+              color: _firstDoseTime == null ? Colors.grey : colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'İlk Doz Saati',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _firstDoseTime == null
+                          ? Colors.grey[600]
+                          : colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _firstDoseTime == null
+                        ? 'Saat seçmek için dokunun'
+                        : _selectedUsageTime!,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: _firstDoseTime == null
+                          ? Colors.grey[600]
+                          : colorScheme.onSurface,
+                      fontWeight: _firstDoseTime != null
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                    ),
+                  ),
+                  if (preview.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Dozlar: $preview',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colorScheme.primary.withAlpha(180),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Icon(
+              Icons.edit_rounded,
+              size: 18,
+              color: Colors.grey[400],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildDropdown<T>({
     required String label,

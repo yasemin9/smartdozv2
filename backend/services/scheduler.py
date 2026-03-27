@@ -105,12 +105,77 @@ def parse_frequency(usage_frequency: str) -> int:
     return 1  # Varsayılan: günde 1
 
 
+def parse_interval_hours(usage_frequency: str) -> int | None:
+    """
+    Saatlik aralık tabanlı sıklıktan saat değerini çıkarır.
+    'Her 8 saatte bir' → 8, 'Her 12 saatte bir' → 12, diğerleri → None
+    """
+    freq_lower = usage_frequency.lower()
+    if "her" in freq_lower and "saat" in freq_lower:
+        import re as _re
+        m = _re.search(r"\b(\d+)\b", freq_lower)
+        if m:
+            h = int(m.group(1))
+            if h > 0 and 24 % h == 0:
+                return h
+    return None
+
+
+def calculate_interval_doses(
+    first_dose_str: str,
+    interval_hours: int,
+    target_date: date,
+) -> list[datetime]:
+    """
+    Algoritma 1 Uzantısı — İlk Doz Saatinden Aralıklı Doz Hesaplaması
+
+    İlk dozdan başlayarak X saatlik aralıklarla gündüzlü dozları üretir.
+    Gün bazlı çakışmaları önlemek için sadece hedef tarihe düşen
+    zaman dilimlerini döndürür.
+
+    Parametreler:
+        first_dose_str  : 'HH:MM' formatında ilk doz saati
+        interval_hours  : Doz aralığı (saat cinsinden, ör: 8)
+        target_date     : Hedef tarih
+
+    Dönüş:
+        Hedef güne ait datetime nesnelerinin listesi
+    """
+    try:
+        h, m = map(int, first_dose_str.strip().split(":"))
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError("Geçersiz saat değeri")
+    except (ValueError, AttributeError):
+        logger.warning(
+            f"Geçersiz ilk doz formatı: {first_dose_str!r}. Varsayılan 08:00 kullanılıyor."
+        )
+        h, m = 8, 0
+
+    first_dose_dt = datetime.combine(target_date, time(h, m))
+    count = 24 // interval_hours
+    return [
+        first_dose_dt + timedelta(hours=interval_hours * i)
+        for i in range(count)
+    ]
+
+
 async def generate_schedule_for_medication_on_date(
     med,
     db,
     target_date: date,
 ) -> List[datetime]:
-    """Tek bir ilacın belirli gün doz saatlerini Algoritma 1 ile üretir."""
+    """Tek bir ilacın belirli gün doz saatlerini üretir.
+
+    Sıklık aralık tabanlıysa (Her 8/12 saatte bir): ilk doz saatinden
+    başlayarak matematiksel aralık hesaplaması yapılır.
+    Diğer durumlarda: ZAMANDILIMIHESAPLA algoritması kullanılır.
+    """
+    # ── Aralık tabanlı sıklık — Algoritma 1 Uzantısı
+    interval_hours = parse_interval_hours(med.usage_frequency)
+    if interval_hours is not None:
+        return calculate_interval_doses(med.usage_time, interval_hours, target_date)
+
+    # ── Kategorik sıklık — ZAMANDILIMIHESAPLA
     from datetime import time as time_type
     from models import UserPreference
     from sqlalchemy import select
@@ -235,18 +300,7 @@ async def create_daily_dose_logs(target_date: date | None = None) -> None:
 
             created = 0
             for med in medications:
-                pref_res = await db.execute(
-                    select(UserPreference).where(UserPreference.user_id == med.user_id)
-                )
-                pref = pref_res.scalar_one_or_none()
-                wake_t  = pref.wake_time  if pref else time_type(8, 0)
-                sleep_t = pref.sleep_time if pref else time_type(22, 0)
-
-                freq = parse_frequency(med.usage_frequency)
-                if freq == 0:
-                    continue
-
-                dose_times = zamandilimihesapla(wake_t, sleep_t, freq, target)
+                dose_times = await generate_schedule_for_medication_on_date(med, db, target)
                 for dt in dose_times:
                     stmt = (
                         pg_insert(DoseLog)
