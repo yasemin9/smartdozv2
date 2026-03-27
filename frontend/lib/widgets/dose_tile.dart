@@ -16,14 +16,16 @@ class DoseTile extends StatelessWidget {
   final DoseLog log;
   final VoidCallback? onTaken;
   final VoidCallback? onMissed;
-  final VoidCallback? onPostponed;
+  /// Erteleme callback'i: seçilen dakika sayısıyla (5/10/15) çağrılır.
+  /// Hem 'Bekliyor' hem 'Ertelendi' durumunda sunulur.
+  final Function(int minutes)? onSnooze;
 
   const DoseTile({
     super.key,
     required this.log,
     this.onTaken,
     this.onMissed,
-    this.onPostponed,
+    this.onSnooze,
   });
 
   // ────────────────────────────────────────────────────
@@ -261,7 +263,9 @@ class DoseTile extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   IconButton.outlined(
-                    onPressed: onPostponed,
+                    onPressed: onSnooze != null
+                        ? () => _showSnoozeSheet(context)
+                        : null,
                     icon: const Icon(Icons.snooze_rounded, size: 18),
                     tooltip: 'Ertele',
                     style: IconButton.styleFrom(
@@ -273,7 +277,7 @@ class DoseTile extends StatelessWidget {
               ),
             ],
 
-            // ── Ertelendi: "Şimdi Al" + "Atla" — state machine Ertelendi→Alındı/Atlandı
+            // ── Ertelendi: "Şimdi Al" + "Tekrar Ertele" + "Atla"
             if (log.isPostponed) ...[
               const SizedBox(height: 12),
               Row(
@@ -302,9 +306,164 @@ class DoseTile extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  IconButton.outlined(
+                    onPressed: onSnooze != null
+                        ? () => _showSnoozeSheet(context)
+                        : null,
+                    icon: const Icon(Icons.snooze_rounded, size: 18),
+                    tooltip: 'Tekrar Ertele',
+                    style: IconButton.styleFrom(
+                      foregroundColor: const Color(0xFFE65100),
+                      side: const BorderSide(color: Color(0xFFE65100)),
+                    ),
+                  ),
                 ],
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 5 / 10 / 15 dk seçeneklerini sunan snooze Bottom Sheet.
+  void _showSnoozeSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _SnoozeBottomSheet(
+        medicationName: log.medicationName,
+        onSelected: (minutes) {
+          Navigator.of(ctx).pop();
+          onSnooze?.call(minutes);
+        },
+      ),
+    );
+  }
+}
+
+// ── Snooze Bottom Sheet widget (paylaşımlı) ───────────────────────────
+class _SnoozeBottomSheet extends StatelessWidget {
+  final String medicationName;
+  final void Function(int minutes) onSelected;
+
+  const _SnoozeBottomSheet({
+    required this.medicationName,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Kavrama çubuğu
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            // Başlık
+            Row(
+              children: [
+                const Icon(Icons.snooze_rounded,
+                    color: Color(0xFFE65100), size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Ne kadar erteleyelim?',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0D1B2A),
+                        ),
+                      ),
+                      Text(
+                        medicationName,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF455A64),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Seçenek butonları
+            Row(
+              children: [5, 10, 15].map((m) {
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: _SnoozeOption(
+                      minutes: m,
+                      onTap: () => onSelected(m),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SnoozeOption extends StatelessWidget {
+  final int minutes;
+  final VoidCallback onTap;
+
+  const _SnoozeOption({required this.minutes, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF3E0),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: const Color(0xFFE65100).withOpacity(0.4),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.access_time_rounded,
+                color: Color(0xFFE65100), size: 22),
+            const SizedBox(height: 6),
+            Text(
+              '$minutes dk',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFFE65100),
+              ),
+            ),
           ],
         ),
       ),

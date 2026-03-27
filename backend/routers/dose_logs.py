@@ -90,11 +90,13 @@ async def update_dose_status(
         log.notes = body.notes
     if body.status == "Alındı":
         log.actual_time = datetime.now()
-    # Ertelendi: scheduled_time'i 15 dakika sonraya taşı — bildirim penceresi
-    # otomatik olarak bu dozu 15 dk sonra tekrar yakalar (re-notification).
-    # Not: bu bir UPDATE'dir; UniqueConstraint sadece INSERT'te tetiklenir.
+    # Ertelendi: scheduled_time'i seçilen dk sonraya taşı — bildirim penceresi
+    # otomatik olarak bu dozu belirtilen süre sonra tekrar yakalar (re-notification).
+    # Varsayılan 15 dk (geriye dönük uyumluluk); /notifications/snooze endpoint'i
+    # kullanıcı seçimine göre 5/10/15 dk gönderir.
     if body.status == "Ertelendi":
-        log.scheduled_time = datetime.now() + timedelta(minutes=15)
+        snooze_minutes = 15  # PATCH üzerinden gelen eski istek uyumluluğu
+        log.scheduled_time = datetime.now() + timedelta(minutes=snooze_minutes)
 
     await db.commit()
     await db.refresh(log)

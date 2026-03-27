@@ -49,6 +49,15 @@ class _DailyDosesScreenState extends State<DailyDosesScreen> {
     }
   }
 
+  Future<void> _snooze(DoseLog log, int minutes) async {
+    try {
+      await context.read<ApiService>().snoozeDose(log.id, minutes);
+      if (mounted) setState(_loadLogs);
+    } on ApiException catch (e) {
+      _showError(e.message);
+    }
+  }
+
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -148,15 +157,15 @@ class _DailyDosesScreenState extends State<DailyDosesScreen> {
                       return DoseTile(
                         log: log,
                         // Gelecek tarihse tüm aksiyonlar null → butonlar pasif
-                        // Bekliyor: tam set; Ertelendi: Alındı + Atlandı
+                        // Bekliyor: tam set; Ertelendi: Alındı + Atlandı + Tekrar Ertele
                         onTaken: (!isFuture && (log.isPending || log.isPostponed))
                             ? () => _updateStatus(log, 'Alındı')
                             : null,
                         onMissed: (!isFuture && (log.isPending || log.isPostponed))
                             ? () => _updateStatus(log, 'Atlandı')
                             : null,
-                        onPostponed: (!isFuture && log.isPending)
-                            ? () => _updateStatus(log, 'Ertelendi')
+                        onSnooze: (!isFuture && (log.isPending || log.isPostponed))
+                            ? (minutes) => _snooze(log, minutes)
                             : null,
                       );
                     },

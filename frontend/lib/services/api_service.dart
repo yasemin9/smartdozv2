@@ -361,6 +361,26 @@ class ApiService extends ChangeNotifier {
     throw ApiException(_extractDetail(_parseBody(response)));
   }
 
+  /// Dozu belirli süre erteler (Modül 2 — Gelişmiş Erteleme).
+  ///
+  /// [minutes] 5, 10 veya 15 olabilir.
+  /// Hem 'Bekliyor' hem 'Ertelendi' durumundaki dozlara uygulanabilir.
+  /// Modül 7: Her erteleme PostgreSQL'e zaman damgasıyla kaydedilir.
+  Future<DoseLog> snoozeDose(int doseLogId, int minutes) async {
+    final response = await http.post(
+      Uri.parse('$_kBaseUrl/notifications/snooze/$doseLogId'),
+      headers: _authHeaders,
+      body: jsonEncode({'minutes': minutes}),
+    );
+    if (response.statusCode == 200) {
+      final log = DoseLog.fromJson(_parseBody(response) as Map<String, dynamic>);
+      notifyListeners();
+      return log;
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
   // ────────────────────────────────────────────────────
   // Bildirimler
   // ────────────────────────────────────────────────────

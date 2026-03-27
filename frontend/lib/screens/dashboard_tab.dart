@@ -147,12 +147,22 @@ class DashboardTabState extends State<DashboardTab>
   Future<void> _updateStatus(DoseLog log, String newStatus) async {
     try {
       await context.read<ApiService>().updateDoseStatus(log.id, newStatus);
-      // Ertelendi: 15 dk sonra tekrar bildirim gelmelidir.
-      // Backend scheduled_time'i ileri taşıdı, _shownIds'ten temizleyerek
+      // Ertelendi: backend scheduled_time'i ileri taşıdı, _shownIds'ten temizleyerek
       // polling bu dozu tekrar bildirebilsin.
       if (newStatus == 'Ertelendi') {
         NotificationService.clearId(log.id);
       }
+      if (mounted) setState(_loadDoses);
+    } on ApiException catch (e) {
+      _showSnack(e.message, isError: true);
+    }
+  }
+
+  Future<void> _snooze(DoseLog log, int minutes) async {
+    try {
+      await context.read<ApiService>().snoozeDose(log.id, minutes);
+      // Erteleme sonrası aynı doz için yeniden bildirim gönderilmelidir.
+      NotificationService.clearId(log.id);
       if (mounted) setState(_loadDoses);
     } on ApiException catch (e) {
       _showSnack(e.message, isError: true);
@@ -360,8 +370,8 @@ class DashboardTabState extends State<DashboardTab>
                     onMissed: (next != null && next.isPostponed)
                         ? () => _updateStatus(next, 'Atlandı')
                         : null,
-                    onPostponed: (next != null && next.isPending)
-                        ? () => _updateStatus(next, 'Ertelendi')
+                    onSnooze: (next != null && (next.isPending || next.isPostponed))
+                        ? (minutes) => _snooze(next, minutes)
                         : null,
                   ),
                 ),
@@ -389,15 +399,15 @@ class DashboardTabState extends State<DashboardTab>
                       itemBuilder: (ctx, i) => _TimelineDoseCard(
                         log: sortedLogs[i],
                         isLast: i == sortedLogs.length - 1,
-                        // Bekliyor: tam set; Ertelendi: Alındı + Atlandı
+                        // Bekliyor: tam set; Ertelendi: Alındı + Atlandı + Tekrar Ertele
                         onTaken: (sortedLogs[i].isPending || sortedLogs[i].isPostponed)
                             ? () => _updateStatus(sortedLogs[i], 'Alındı')
                             : null,
                         onMissed: (sortedLogs[i].isPending || sortedLogs[i].isPostponed)
                             ? () => _updateStatus(sortedLogs[i], 'Atlandı')
                             : null,
-                        onPostponed: sortedLogs[i].isPending
-                            ? () => _updateStatus(sortedLogs[i], 'Ertelendi')
+                        onSnooze: (sortedLogs[i].isPending || sortedLogs[i].isPostponed)
+                            ? (minutes) => _snooze(sortedLogs[i], minutes)
                             : null,
                       ),
                     ),
@@ -530,7 +540,8 @@ class _HeroNextDoseCard extends StatelessWidget {
   final bool hasOverdue;
   final VoidCallback? onTaken;
   final VoidCallback? onMissed;
-  final VoidCallback? onPostponed;
+  /// Snooze callback — seçilen dakika sayısıyla çağrılır (5/10/15).
+  final Function(int minutes)? onSnooze;
 
   const _HeroNextDoseCard({
     required this.nextDose,
@@ -538,7 +549,7 @@ class _HeroNextDoseCard extends StatelessWidget {
     required this.hasOverdue,
     this.onTaken,
     this.onMissed,
-    this.onPostponed,
+    this.onSnooze,
   });
 
   bool get _allTaken =>
@@ -574,7 +585,7 @@ class _HeroNextDoseCard extends StatelessWidget {
                 ? (hasOverdue
                     ? _buildOverdueReminder()
                     : _buildNoDoseContent())
-                : _buildNextDoseContent(),
+                : _buildNextDoseContent(context),
       ),
     );
   }
@@ -599,7 +610,7 @@ class _HeroNextDoseCard extends StatelessWidget {
         ],
       );
 
-  Widget _buildNextDoseContent() {
+  Widget _buildNextDoseContent(BuildContext context) {
     final log = nextDose!;
     final timeStr = DateFormat('HH:mm').format(log.scheduledTime);
     final minutesLeft = log.scheduledTime
@@ -699,7 +710,7 @@ class _HeroNextDoseCard extends StatelessWidget {
 
         const SizedBox(height: 20),
 
-        // Aksiyon butonları — Ertelendi ise "Şimdi Al + Atla", değilse "Aldım + Ertele"
+        // Aksiyon butonları — Ertelendi ise "Şimdi Al + Atla + Tekrar Ertele", değilse "Aldım + Ertele"
         Row(
           children: [
             Expanded(
@@ -722,8 +733,30 @@ class _HeroNextDoseCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
+            if (log.isPostponed) ...[
+              OutlinedButton(
+                onPressed: onMissed,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white54, width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.close_rounded, size: 20),
+                    Text('Atla', style: TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
             OutlinedButton(
-              onPressed: log.isPostponed ? onMissed : onPostponed,
+              onPressed: onSnooze != null
+                  ? () => _showHeroSnoozeSheet(context, log)  // context from _buildNextDoseContent param
+                  : null,
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
                 side: const BorderSide(
@@ -736,14 +769,9 @@ class _HeroNextDoseCard extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    log.isPostponed
-                        ? Icons.close_rounded
-                        : Icons.snooze_rounded,
-                    size: 20,
-                  ),
+                  const Icon(Icons.snooze_rounded, size: 20),
                   Text(
-                    log.isPostponed ? 'Atla' : 'Ertele',
+                    log.isPostponed ? 'Tekrar Ertele' : 'Ertele',
                     style: const TextStyle(fontSize: 11),
                   ),
                 ],
@@ -781,6 +809,24 @@ class _HeroNextDoseCard extends StatelessWidget {
         ],
       );
 
+  /// Hero kart için snooze bottom sheet — DoseLog importları burada mevcut.
+  void _showHeroSnoozeSheet(BuildContext context, DoseLog log) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _HeroSnoozeSheet(
+        medicationName: log.medicationName,
+        onSelected: (minutes) {
+          Navigator.of(ctx).pop();
+          onSnooze?.call(minutes);
+        },
+      ),
+    );
+  }
+
+
   Widget _buildNoDoseContent() => const Column(
         children: [
           Text('💊', style: TextStyle(fontSize: 40)),
@@ -801,6 +847,125 @@ class _HeroNextDoseCard extends StatelessWidget {
           ),
         ],
       );
+}
+
+// ── Hero kart için snooze sheet (inline, DoseLog bağımlılığı yok) ────
+class _HeroSnoozeSheet extends StatelessWidget {
+  final String medicationName;
+  final void Function(int minutes) onSelected;
+
+  const _HeroSnoozeSheet({
+    required this.medicationName,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                const Icon(Icons.snooze_rounded,
+                    color: _kWarning, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Ne kadar erteleyelim?',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: _kTextDark,
+                        ),
+                      ),
+                      Text(
+                        medicationName,
+                        style: const TextStyle(
+                            fontSize: 13, color: _kTextMid),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [5, 10, 15].map((m) {
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: _SnoozeChip(
+                      minutes: m,
+                      onTap: () => onSelected(m),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SnoozeChip extends StatelessWidget {
+  final int minutes;
+  final VoidCallback onTap;
+
+  const _SnoozeChip({required this.minutes, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          color: _kWarning.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _kWarning.withOpacity(0.40)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.access_time_rounded,
+                color: _kWarning, size: 22),
+            const SizedBox(height: 6),
+            Text(
+              '$minutes dk',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: _kWarning,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -991,14 +1156,14 @@ class _TimelineDoseCard extends StatelessWidget {
   final bool isLast;
   final VoidCallback? onTaken;
   final VoidCallback? onMissed;
-  final VoidCallback? onPostponed;
+  final Function(int minutes)? onSnooze;
 
   const _TimelineDoseCard({
     required this.log,
     required this.isLast,
     this.onTaken,
     this.onMissed,
-    this.onPostponed,
+    this.onSnooze,
   });
 
   Color get _dotColor {
@@ -1108,7 +1273,7 @@ class _TimelineDoseCard extends StatelessWidget {
                 log: log,
                 onTaken: onTaken,
                 onMissed: onMissed,
-                onPostponed: onPostponed,
+                onSnooze: onSnooze,
               ),
             ),
           ],
@@ -1122,13 +1287,13 @@ class _DoseContentCard extends StatelessWidget {
   final DoseLog log;
   final VoidCallback? onTaken;
   final VoidCallback? onMissed;
-  final VoidCallback? onPostponed;
+  final Function(int minutes)? onSnooze;
 
   const _DoseContentCard({
     required this.log,
     this.onTaken,
     this.onMissed,
-    this.onPostponed,
+    this.onSnooze,
   });
 
   Color get _cardBg {
@@ -1297,11 +1462,13 @@ class _DoseContentCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Ertele mini butonu
+                  // Ertele mini butonu — snooze sheet açar
                   Tooltip(
                     message: 'Ertele',
                     child: IconButton.outlined(
-                      onPressed: onPostponed,
+                      onPressed: onSnooze != null
+                          ? () => _showSnoozeSheet(context)
+                          : null,
                       icon: const Icon(Icons.snooze_rounded, size: 20),
                       style: IconButton.styleFrom(
                         foregroundColor: _kWarning,
@@ -1314,7 +1481,7 @@ class _DoseContentCard extends StatelessWidget {
               ),
             ],
 
-            // ── Ertelendi: Kapalı Döngü → "Şimdi Al" veya "Atla" (EK1_revize s.46)
+            // ── Ertelendi: "Şimdi Al" + "Tekrar Ertele" + "Atla" (Kapalı Döngü)
             if (log.isPostponed) ...[
               const SizedBox(height: 12),
               Row(
@@ -1361,11 +1528,42 @@ class _DoseContentCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  Tooltip(
+                    message: 'Tekrar Ertele',
+                    child: IconButton.outlined(
+                      onPressed: onSnooze != null
+                          ? () => _showSnoozeSheet(context)
+                          : null,
+                      icon: const Icon(Icons.snooze_rounded, size: 20),
+                      style: IconButton.styleFrom(
+                        foregroundColor: _kWarning,
+                        side: const BorderSide(color: _kWarning),
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  void _showSnoozeSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _HeroSnoozeSheet(
+        medicationName: log.medicationName,
+        onSelected: (minutes) {
+          Navigator.of(ctx).pop();
+          onSnooze?.call(minutes);
+        },
       ),
     );
   }

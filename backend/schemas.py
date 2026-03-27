@@ -171,6 +171,7 @@ class UserPreferenceResponse(BaseModel):
 # ──────────────────────────────────────────────────────
 
 VALID_STATUSES = {"Alındı", "Atlandı", "Ertelendi"}
+VALID_SNOOZE_MINUTES = {5, 10, 15}
 
 
 class DoseLogStatusUpdate(BaseModel):
@@ -183,6 +184,20 @@ class DoseLogStatusUpdate(BaseModel):
     def validate_status(cls, v: str) -> str:
         if v not in VALID_STATUSES:
             raise ValueError(f"Geçersiz durum. Seçenekler: {VALID_STATUSES}")
+        return v
+
+
+class SnoozeRequest(BaseModel):
+    """Erteleme isteği — Modül 2 (Hatırlatıcı Sistemi)."""
+    minutes: int = Field(..., description="Erteleme süresi: 5, 10 veya 15 dakika.")
+
+    @field_validator("minutes")
+    @classmethod
+    def validate_minutes(cls, v: int) -> int:
+        if v not in VALID_SNOOZE_MINUTES:
+            raise ValueError(
+                f"Geçersiz erteleme süresi. İzin verilenler: {sorted(VALID_SNOOZE_MINUTES)} dakika."
+            )
         return v
 
 

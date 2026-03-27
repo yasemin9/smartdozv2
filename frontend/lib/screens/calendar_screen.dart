@@ -362,7 +362,7 @@ class _SelectedDayDoseList extends StatelessWidget {
                     log: logs[i],
                     onTaken: null,
                     onMissed: null,
-                    onPostponed: null,
+                    onSnooze: null,
                   ),
                 );
               },
