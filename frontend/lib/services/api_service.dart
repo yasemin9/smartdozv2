@@ -615,6 +615,81 @@ class ApiService extends ChangeNotifier {
     }
     return 'Bir hata oluştu.';
   }
+
+  // ── Modül 6: Sesli Asistan — Groq Sorgu Proxy ──────────────────────────────
+
+  /// Sesli form sihirbazı için global katalogda ilaç arar. Max 5 sonuç döner.
+  Future<List<MedSearchResult>> voiceMedSearch(String query) async {
+    try {
+      final uri = Uri.parse('$_kBaseUrl/ai/voice-med-search')
+          .replace(queryParameters: {'query': query.trim(), 'limit': '5'});
+      final response = await http.get(uri, headers: _authHeaders);
+      if (response.statusCode == 200) {
+        final list = _parseBody(response) as List<dynamic>;
+        return list
+            .map((e) => MedSearchResult.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      if (response.statusCode == 401) await _handleUnauthorized();
+    } catch (_) {}
+    return [];
+  }
+
+  /// Sesli komutun transkriptini backend üzerinden Groq Llama 3.1'e iletir.
+  /// Backend GROQ_API_KEY yoksa veya Groq hata verirse [VoiceAIResult.isFallback]
+  /// true döner ve Flutter kural motoru devreye girer.
+  Future<VoiceAIResult> voiceQuery(String query) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_kBaseUrl/ai/voice-query'),
+        headers: _authHeaders,
+        body: jsonEncode({'query': query}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = _parseBody(response) as Map<String, dynamic>;
+        final answer = data['answer'] as String?;
+        final source = data['source'] as String? ?? 'fallback';
+        final action = data['action'] as String?;
+        final medicationName = data['medication_name'] as String?;
+        final medicationId = data['medication_id'] as int?;
+        final doseLogId = data['dose_log_id'] as int?;
+        return VoiceAIResult(
+          answer: answer,
+          source: source,
+          action: action,
+          medicationName: medicationName,
+          medicationId: medicationId,
+          doseLogId: doseLogId,
+        );
+      }
+      if (response.statusCode == 401) await _handleUnauthorized();
+    } catch (_) {
+      // Ağ hatası → kural motoruna düş
+    }
+    return const VoiceAIResult(answer: null, source: 'fallback');
+  }
+}
+
+/// Sesli asistan Groq sorgu sonucu.
+class VoiceAIResult {
+  final String? answer;
+  final String source;          // "groq" | "fallback"
+  final String? action;         // "delete_medication" | "add_medication" | "log_dose" | null
+  final String? medicationName;
+  final int?    medicationId;
+  final int?    doseLogId;
+
+  const VoiceAIResult({
+    required this.answer,
+    required this.source,
+    this.action,
+    this.medicationName,
+    this.medicationId,
+    this.doseLogId,
+  });
+
+  bool get isFallback => source == 'fallback' || answer == null || answer!.isEmpty;
 }
 
 /// API katmanından fırlatılan tipli istisna.
@@ -624,4 +699,32 @@ class ApiException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Sesli form sihirbazı ilaç arama sonucu.
+class MedSearchResult {
+  final int id;
+  final String productName;
+  final String? activeIngredient;
+  final String? category1;
+  final String? atcCode;
+  final String? barcode;
+
+  const MedSearchResult({
+    required this.id,
+    required this.productName,
+    this.activeIngredient,
+    this.category1,
+    this.atcCode,
+    this.barcode,
+  });
+
+  factory MedSearchResult.fromJson(Map<String, dynamic> json) => MedSearchResult(
+        id: json['id'] as int,
+        productName: json['product_name'] as String,
+        activeIngredient: json['active_ingredient'] as String?,
+        category1: json['category_1'] as String?,
+        atcCode: json['atc_code'] as String?,
+        barcode: json['barcode'] as String?,
+      );
 }

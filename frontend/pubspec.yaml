@@ -33,6 +33,10 @@ dependencies:
   # Modül 4: OCR — Kamera ve galeri erişimi
   image_picker: ^1.2.1
 
+  # Modül 6: Sesli Asistan — Konuşmadan Metne (STT) & Metinden Konuşmaya (TTS)
+  speech_to_text: ^7.0.0
+  flutter_tts: ^4.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

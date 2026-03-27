@@ -17,6 +17,7 @@ import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter_tts/flutter_tts.dart';
 
 // ── Web Notification API — dart:js_interop extension types ───────────
 
@@ -42,6 +43,33 @@ class NotificationService {
   static final _shownIds = <int>{};
 
   static bool _permissionRequested = false;
+
+  // ── TTS (Modül 6 entegrasyonu) ─────────────────────────────────────
+  // Ekran kilitli veya farklı sekmede olunsa bile bildirim sesli okunur.
+  static final FlutterTts _tts = FlutterTts();
+  static bool _ttsReady = false;
+
+  static Future<void> _ensureTts() async {
+    if (_ttsReady) return;
+    await _tts.setLanguage('tr-TR');
+    await _tts.setSpeechRate(0.5);
+    await _tts.setVolume(1.0);
+    _ttsReady = true;
+  }
+
+  /// Bildirim sesini sesli olarak okur (TTS).
+  /// VoiceController'dan bağımsız çalışır — bildirim polling'i tetikler.
+  static Future<void> announceViaTts({
+    required String medicationName,
+    required String scheduledTime,
+  }) async {
+    await _ensureTts();
+    await _tts.stop();
+    await _tts.speak(
+      '$medicationName ilacınızı alma zamanı geldi. '
+      'Planlanan saat: $scheduledTime.',
+    );
+  }
 
   // ── İzin ─────────────────────────────────────────────────────────
 
@@ -96,6 +124,13 @@ class NotificationService {
       }).toJS;
 
       _shownIds.add(doseLogId);
+
+      // ── Sesli Bildirim (Modül 6) ─────────────────────────────────
+      // Ekranda görünmeyen kullanıcıya TTS ile de hatırlatılır.
+      announceViaTts(
+        medicationName: medicationName,
+        scheduledTime: scheduledTime,
+      ).ignore();
     } catch (e) {
       debugPrint('[Notif] Bildirim gösterilemedi: $e');
     }

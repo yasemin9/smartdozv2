@@ -10,6 +10,7 @@
 //   2 → MedicationsTab  – İlaç listesi & ekleme
 //   3 → AIProfileScreen – Modül 8: YZ Akıllı Profil & Kararlar
 //   4 → ProfileTab      – Kullanıcı & tercihler
+// Modül 6: FAB → VoiceAssistantScreen
 import 'package:flutter/material.dart';
 
 import 'ai_profile_screen.dart';
@@ -17,6 +18,7 @@ import 'calendar_screen.dart';
 import 'dashboard_tab.dart';
 import 'medications_tab.dart';
 import 'profile_tab.dart';
+import 'voice_assistant_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -57,6 +59,26 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _currentIndex,
         children: _pages,
       ),
+
+      // ── Modül 6: Sesli Asistan FAB ──────────────────────────────────────
+      floatingActionButton: Semantics(
+        label: 'Sesli asistanı aç',
+        hint: 'Sesli komut vermek için düğmeye dokunun',
+        button: true,
+        child: FloatingActionButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const VoiceAssistantScreen(),
+            ),
+          ),
+          backgroundColor: const Color(0xFF1565C0),
+          foregroundColor: Colors.white,
+          tooltip: 'Sesli Asistan',
+          child: const Icon(Icons.mic_rounded, size: 28),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
 
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
