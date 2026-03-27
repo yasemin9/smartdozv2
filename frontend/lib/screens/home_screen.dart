@@ -60,24 +60,26 @@ class _HomeScreenState extends State<HomeScreen> {
         children: _pages,
       ),
 
-      // ── Modül 6: Sesli Asistan FAB ──────────────────────────────────────
-      floatingActionButton: Semantics(
-        label: 'Sesli asistanı aç',
-        hint: 'Sesli komut vermek için düğmeye dokunun',
-        button: true,
-        child: FloatingActionButton(
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const VoiceAssistantScreen(),
+      // ── Modül 6: Sesli Asistan FAB (İlaçlarım sekmesinde gizlenir) ────────
+      floatingActionButton: _currentIndex == 2
+          ? null
+          : Semantics(
+              label: 'Sesli asistanı aç',
+              hint: 'Sesli komut vermek için düğmeye dokunun',
+              button: true,
+              child: FloatingActionButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const VoiceAssistantScreen(),
+                  ),
+                ),
+                backgroundColor: const Color(0xFF1565C0),
+                foregroundColor: Colors.white,
+                tooltip: 'Sesli Asistan',
+                child: const Icon(Icons.mic_rounded, size: 28),
+              ),
             ),
-          ),
-          backgroundColor: const Color(0xFF1565C0),
-          foregroundColor: Colors.white,
-          tooltip: 'Sesli Asistan',
-          child: const Icon(Icons.mic_rounded, size: 28),
-        ),
-      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
 
       bottomNavigationBar: NavigationBar(

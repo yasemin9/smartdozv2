@@ -12,6 +12,7 @@ import '../screens/medication_info_screen.dart';
 import '../services/api_service.dart';
 import 'add_medication_screen.dart';
 import 'ocr_scan_screen.dart';
+import 'voice_assistant_screen.dart';
 
 // ── Renk sabitleri (Dashboard ile aynı paletit)
 const _kPrimary  = Color(0xFF1565C0);
@@ -162,6 +163,20 @@ class _MedicationsTabState extends State<MedicationsTab>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          // Modül 6: Sesli Asistan
+          FloatingActionButton(
+            heroTag: 'voice_fab',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const VoiceAssistantScreen()),
+            ),
+            backgroundColor: const Color(0xFF1565C0),
+            foregroundColor: Colors.white,
+            tooltip: 'Sesli Asistan',
+            child: const Icon(Icons.mic_rounded, size: 26),
+          ),
+          const SizedBox(height: 12),
           // Modül 4: OCR ile kutu tara
           FloatingActionButton(
             heroTag: 'ocr_scan_fab',
