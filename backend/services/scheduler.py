@@ -184,6 +184,50 @@ def resolve_usage_time_from_routine(
     return result_dt
 
 
+# Türkçe gün adı → isoweekday (1=Pazartesi, 7=Pazar)
+_WEEKDAY_MAP: dict[str, int] = {
+    "pazartesi": 1,
+    "salı":      2,
+    "çarşamba":  3,
+    "perşembe":  4,
+    "cuma":      5,
+    "cumartesi": 6,
+    "pazar":     7,
+}
+
+
+def parse_weekly_usage_time(
+    usage_time: str,
+    usage_frequency: str,
+    target_date: date,
+) -> list[datetime] | None:
+    """
+    'Haftada 1 kez' için 'Pazartesi|09:00' formatını ayrıştırır.
+
+    target_date'in isoweekday'i eşleşiyorsa → [datetime] döner.
+    Eşleşmiyorsa → [] döner (o gün doz yok).
+    Format tanınmazsa → None döner (sonraki adıma geçilir).
+    """
+    if "haftada" not in usage_frequency.lower():
+        return None
+    if "|" not in usage_time or ";" in usage_time:
+        return None
+
+    parts = usage_time.split("|", 1)
+    day_name = parts[0].strip().lower()
+    iso_day = _WEEKDAY_MAP.get(day_name)
+    if iso_day is None:
+        return None
+
+    t = _parse_hhmm(parts[1]) if len(parts) > 1 else None
+    if t is None:
+        t = time(9, 0)
+
+    if target_date.isoweekday() == iso_day:
+        return [datetime.combine(target_date, t)]
+    return []
+
+
 def _parse_hhmm(s: str) -> time | None:
     """'HH:MM' metnini time nesnesine çevirir; hatalı formatta None döner."""
     try:
@@ -281,10 +325,19 @@ async def generate_schedule_for_medication_on_date(
     3. Tek etiket ('Sabah'): rutin tabanlı çözümleme
     4. Fallback: ZAMANDILIMIHESAPLA
     """
+    # ── Planlanmamış ilaç (Gerektiğinde) — hiç doz üretme
+    if (med.usage_time or "").strip().lower() == "as_needed":
+        return []
+
     # ── Aralık tabanlı sıklık — Algoritma 1 Uzantısı
     interval_hours = parse_interval_hours(med.usage_frequency)
     if interval_hours is not None:
         return calculate_interval_doses(med.usage_time, interval_hours, target_date)
+
+    # ── Haftada 1 kez — weekday + saat kontrolü (DB'ye erişim gerekmez)
+    weekly = parse_weekly_usage_time(med.usage_time, med.usage_frequency, target_date)
+    if weekly is not None:
+        return weekly
 
     # ── Ortak: kullanıcı tercihlerini yükle
     from datetime import time as time_type

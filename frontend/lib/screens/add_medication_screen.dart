@@ -51,6 +51,11 @@ const Set<String> kIntervalFrequencies = {
   'Her 12 saatte bir',
 };
 
+/// Haftanın günleri (Haftada 1 kez seçici için)
+const List<String> kWeekdays = [
+  'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar',
+];
+
 /// Sıklığın saatlik aralık tabanlı olup olmadığını kontrol eder
 bool _isIntervalBased(String? freq) =>
     freq != null && kIntervalFrequencies.contains(freq);
@@ -176,6 +181,9 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   // Aralıklı sıklık (Her 8/12 saatte bir) için ilk doz saati
   TimeOfDay? _firstDoseTime;
   String? _firstDoseTimeStr; // DB'ye yazılacak HH:MM
+  // Haftada 1 kez için gün + saat
+  String? _weeklyDay;
+  TimeOfDay? _weeklyTime;
   DateTime? _expiryDate;
   bool _isLoading = false;
   List<InteractionWarning> _interactionWarnings = const [];
@@ -312,17 +320,33 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       _showError('Lütfen son kullanma tarihini seçin.');
       return;
     }
-    if (_isIntervalBased(_selectedFrequency) && _firstDoseTime == null) {
-      _showError('Lütfen ilk doz saatini seçin.');
-      return;
-    }
-    if (!_isIntervalBased(_selectedFrequency)) {
-      final needed = _doseCountFromFrequency(_selectedFrequency);
-      if (_doseSlots.length < needed) {
-        _showError('Lütfen $needed doz zamanı seçin.');
+
+    // ── Kullanım zamanı doğrulama ve usageTimeStr oluşturma
+    final String usageTimeStr;
+    if (_selectedFrequency == 'Gerektiğinde') {
+      // Planlanmamış ilaç — zaman doğrulaması yok
+      usageTimeStr = 'as_needed';
+    } else if (_selectedFrequency == 'Haftada 1 kez') {
+      if (_weeklyDay == null || _weeklyTime == null) {
+        _showError('Lütfen bir gün ve saat seçin.');
         return;
       }
-      // Anlamsal saat kontrolü
+      final hh = _weeklyTime!.hour.toString().padLeft(2, '0');
+      final mm = _weeklyTime!.minute.toString().padLeft(2, '0');
+      usageTimeStr = '$_weeklyDay|$hh:$mm';
+    } else if (_isIntervalBased(_selectedFrequency)) {
+      if (_firstDoseTime == null) {
+        _showError('Lütfen ilk doz saatini seçin.');
+        return;
+      }
+      usageTimeStr = _firstDoseTimeStr!;
+    } else {
+      // Kategorik dönemsel ilaç — doz slot kontrolü
+      final needed = _doseCountFromFrequency(_selectedFrequency);
+      if (_doseSlots.length < needed) {
+        _showError('Lütfen bir doz zamanı seçin.');
+        return;
+      }
       for (final slot in _doseSlots) {
         if (!slot.isSemanticValid) {
           final preset = kLabelPresets[slot.label]!;
@@ -334,14 +358,10 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           return;
         }
       }
+      usageTimeStr = _doseSlots.map((s) => s.toStorageString()).join(';');
     }
 
     setState(() => _isLoading = true);
-
-    // Kayıt için usage_time string'ini oluştur
-    final usageTimeStr = _isIntervalBased(_selectedFrequency)
-        ? _firstDoseTimeStr!
-        : _doseSlots.map((s) => s.toStorageString()).join(';');
 
     try {
       final medication = Medication(
@@ -571,8 +591,12 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                               _firstDoseTime = null;
                               _firstDoseTimeStr = null;
                             } else if (!willBeInterval) {
-                              // Kategorik kaldı ama doz sayısı değişti ise sıfırla
                               _doseSlots = [];
+                            }
+                            // Haftalık seçici sıfırla
+                            if (v != 'Haftada 1 kez') {
+                              _weeklyDay = null;
+                              _weeklyTime = null;
                             }
                           });
                         },
@@ -584,9 +608,11 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       // ── Kullanım Zamanı / İlk Doz Saati (bağımlı alan)
                       if (_isIntervalBased(_selectedFrequency))
                         _buildFirstDoseTimePicker()
-                      else if (_selectedFrequency != null &&
-                          _selectedFrequency != 'Haftada 1 kez' &&
-                          _selectedFrequency != 'Gerektiğinde')
+                      else if (_selectedFrequency == 'Haftada 1 kez')
+                        _buildWeeklyPicker()
+                      else if (_selectedFrequency == 'Gerektiğinde')
+                        _buildAsNeededBadge()
+                      else if (_selectedFrequency != null)
                         _DoseSlotEditor(
                           frequency: _selectedFrequency!,
                           slots: _doseSlots,
@@ -707,6 +733,129 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           letterSpacing: 0.5,
         ),
       );
+
+  /// Haftada 1 kez — gün ve saat seçici.
+  Widget _buildWeeklyPicker() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final timeStr = _weeklyTime != null
+        ? '${_weeklyTime!.hour.toString().padLeft(2, '0')}:'
+            '${_weeklyTime!.minute.toString().padLeft(2, '0')}'
+        : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDropdown<String>(
+          label: 'Haftanın Günü',
+          hint: 'Bir gün seçin',
+          icon: Icons.calendar_today_rounded,
+          value: _weeklyDay,
+          items: kWeekdays,
+          onChanged: (v) => setState(() => _weeklyDay = v),
+        ),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: () async {
+            final picked = await showTimePicker(
+              context: context,
+              initialTime: _weeklyTime ?? const TimeOfDay(hour: 9, minute: 0),
+              helpText: 'Doz Saatini Seçin',
+              confirmText: 'Seç',
+              cancelText: 'İptal',
+              builder: (ctx, child) => MediaQuery(
+                data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+                child: child!,
+              ),
+            );
+            if (picked != null) setState(() => _weeklyTime = picked);
+          },
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: _weeklyTime == null
+                    ? Colors.grey.shade300
+                    : colorScheme.primary,
+                width: _weeklyTime == null ? 1 : 2,
+              ),
+              borderRadius: BorderRadius.circular(14),
+              color: Colors.grey.shade50,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.schedule_rounded,
+                  color: _weeklyTime == null ? Colors.grey : colorScheme.primary,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Doz Saati',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _weeklyTime == null
+                              ? Colors.grey[600]
+                              : colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        timeStr ?? 'Saat seçmek için dokunun',
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: _weeklyTime == null
+                              ? Colors.grey[600]
+                              : colorScheme.onSurface,
+                          fontWeight: _weeklyTime != null
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.edit_rounded, size: 18, color: Colors.grey[400]),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Gerektiğinde — zamanlama yapılmayacağını açıklayan bilgi kartı.
+  Widget _buildAsNeededBadge() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded,
+              color: Colors.blue.shade700, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Bu ilaç için otomatik hatırlatma oluşturulmayacak.\n'
+              'İhtiyaç duyduğunuzda Dashboard\'dan "Alındı" olarak işaretleyebilirsiniz.',
+              style: TextStyle(fontSize: 13, color: Colors.blue.shade800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   /// Saatlik aralıklı sıklık için İlk Doz Saati seçici widget'ı.
   Widget _buildFirstDoseTimePicker() {    final colorScheme = Theme.of(context).colorScheme;
