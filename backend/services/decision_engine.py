@@ -302,69 +302,67 @@ def _generate_xai_explanation(
     if decision_type == "DOCTOR_REFERRAL":
         if skip_reason == "Yan etki korkusu":
             return (
-                "Birden fazla dozunuzu 'Yan etki korkusu' nedeniyle atladığınızı fark ettim. "
-                "Bu endişeyi doktorunuza bildirmem ister misiniz? "
+                "Birden fazla dozunuzu 'Yan etki korkusu' nedeniyle atladığınız tespit edildi. "
+                "Bu endişeyi doktorunuza iletmeniz önerilir. "
                 "Otomatik saat değişikliği yapılmayacak; önce uzman görüşü alınmalı."
             )
         return (
             f"{label} dozunuzla ilgili klinik bir risk tespit edildi. "
             "İlaç etkileşimleri nedeniyle hatırlatıcı saatinde otomatik değişiklik "
-            "yapılmayacak. Lütfen durumu doktorunuzla görüşün."
+            "yapılmayacak. Durumu doktorunuzla görüşmeniz önerilir."
         )
 
     if decision_type == "LOGISTIC_REMINDER":
         if skip_reason == "İlaç bitti":
             return (
-                "Dozlarınızı 'İlaç bitti' nedeniyle atladığınızı fark ettim. "
-                "Her dozunuzdan 1 saat önce 'Stok kontrolü' hatırlatması eklememi ister misiniz?"
+                "Dozlarınızı 'İlaç bitti' nedeniyle atladığınız tespit edildi. "
+                "Her dozunuzdan 1 saat önce 'Stok kontrolü' hatırlatması eklemeniz faydalı olabilir."
             )
         return (
-            "Dozlarınızı 'Yanımda yoktu' nedeniyle atladığınızı fark ettim. "
+            "Dozlarınızı 'Yanımda yoktu' nedeniyle atladığınız tespit edildi. "
             "Her dozunuzdan 1 saat önce 'İlacınızı yanınıza almayı unutmayın' "
-            "hatırlatması eklememi ister misiniz?"
+            "hatırlatması eklemenizi tavsiye ederim."
         )
 
     if decision_type == "SCHEDULE_SHIFT":
         direction = "ileri" if delta_minutes > 0 else "geri"
         return (
             f"{label} saatlerinde dozlarınızı ortalama {abs(avg_delay):.0f} dakika "
-            f"geç aldığınızı fark ettim. Bu nedenle {label.lower()} hatırlatıcısını "
-            f"{abs(delta_minutes)} dakika {direction} almanızı öneriyorum. "
-            f"Bu değişikliği onaylarsanız 7 gün takip edeceğim."
+            f"geç aldığınız tespit edildi. Bu nedenle {label.lower()} hatırlatıcısını "
+            f"{abs(delta_minutes)} dakika {direction} almanız önerilir."
         )
 
     if decision_type == "TONE_ADAPT":
         if skip_reason == "Uyuyordum":
             return (
-                f"{label} dozlarınızı sıklıkla 'Uyuyordum' nedeniyle atladığınızı fark ettim. "
-                "Alarm tonunu daha güçlü titreşimli/yüksek sesli moda almamı ister misiniz? "
-                "Bu değişikliği onaylarsanız 7 gün takip edeceğim."
+                f"{label} dozlarınızı sıklıkla 'Uyuyordum' nedeniyle atladığınız tespit edildi. "
+                "Cihazınızın alarm ses seviyesini ve titreşim ayarını yükseltmeniz tavsiye edilir."
             )
         if overall_score > _HIGH_ADHERENCE:
             pct = int(overall_score * 100)
             return (
                 f"Tedavi uyumunuz %{pct} ile mükemmel! 🎉 "
-                "Bu performansı ödüllendirmek için alarm tonunuzu daha yumuşak bir sesle "
-                "güncellememi ister misiniz?"
+                "Bu performansı sürdürmek için alarm tonunuzu daha yumuşak bir sesle "
+                "güncellemeniz faydalı olabilir."
             )
         pct = int(overall_score * 100)
         return (
             f"Son dönemde tedavi uyumunuz %{pct} seviyesinde. "
-            "Doz hatırlatmalarını daha dikkat çekici bir ses ile güçlendirmemi "
-            "ister misiniz? Bu küçük değişiklik uyumunuzu artırabilir."
+            "Doz hatırlatmalarını daha dikkat çekici bir ses ile güçlendirmeniz "
+            "tavsiye edilir. Bu küçük değişiklik uyumunuzu artırabilir."
         )
 
     if decision_type == "GAMIFICATION":
         if skip_reason == "Unuttum":
             return (
-                f"{label} dozlarınızı sıklıkla 'Unuttum' nedeniyle atladığınızı fark ettim. "
-                "Hatırlatma sıklığını artırmamı veya rozet/puan kazandıran bir motivasyon "
-                "programı başlatmamı ister misiniz?"
+                f"{label} dozlarınızı sıklıkla 'Unuttum' nedeniyle atladığınız tespit edildi. "
+                "Hatırlatma sıklığını artırmanız veya rozet/puan kazandıran bir motivasyon "
+                "programı başlatmanız faydalı olabilir."
             )
         return (
             f"{label} hatırlatıcı saati değişikliğinin ardından yeterli iyileşme "
-            "gözlemlenemedim. Size rozet ve puan kazandıran bir motivasyon programı "
-            "başlatmamı ister misiniz?"
+            "gözlemlenmedi. Size rozet ve puan kazandıran bir motivasyon programı "
+            "başlatmanız tavsiye edilir."
         )
 
     return "Tedavi uyumunuzu iyileştirmek için bir öneri hazırlandı."

@@ -144,6 +144,12 @@ class _ProfileBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bp = profile.behaviorProfile;
+    final pendingDecisions = profile.pendingDecisions
+        .where((d) => d.decisionType != 'GAMIFICATION')
+        .toList();
+    final recentDecisions = profile.recentDecisions
+        .where((d) => d.decisionType != 'GAMIFICATION')
+        .toList();
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -168,15 +174,15 @@ class _ProfileBody extends StatelessWidget {
         const SizedBox(height: 20),
 
         // ── Bekleyen Kararlar ─────────────────────────
-        if (profile.hasPendingDecisions) ...[
+        if (pendingDecisions.isNotEmpty) ...[
           _SectionHeader(
             icon: Icons.pending_actions_rounded,
             title: 'Bekleyen Öneriler',
-            badge: profile.pendingDecisions.length,
+            badge: pendingDecisions.length,
             color: const Color(0xFF1976D2),
           ),
           const SizedBox(height: 8),
-          ...profile.pendingDecisions.map(
+          ...pendingDecisions.map(
             (d) => DecisionNotificationCard(
               key: ValueKey(d.id),
               decision: d,
@@ -187,21 +193,21 @@ class _ProfileBody extends StatelessWidget {
         ],
 
         // ── Geçmiş Kararlar ───────────────────────────
-        if (profile.recentDecisions.isNotEmpty) ...[
+        if (recentDecisions.isNotEmpty) ...[
           const _SectionHeader(
             icon: Icons.history_rounded,
             title: 'Son Kararlar',
             color: Colors.black54,
           ),
           const SizedBox(height: 8),
-          ...profile.recentDecisions.map(
+          ...recentDecisions.map(
             (d) => DecisionHistoryCard(key: ValueKey('h${d.id}'), decision: d),
           ),
           const SizedBox(height: 20),
         ],
 
         // Veri yoksa boş durum
-        if (!profile.hasPendingDecisions && profile.recentDecisions.isEmpty)
+        if (pendingDecisions.isEmpty && recentDecisions.isEmpty)
           const _EmptyDecisionsView(),
       ],
     );
