@@ -81,6 +81,25 @@ const _kMonths = {
   'temmuz': 7, 'ağustos': 8, 'eylül': 9, 'ekim': 10, 'kasım': 11, 'aralık': 12,
 };
 
+// Saatlik aralık tabanlı sıklıklar (usage_time HH:MM gerektirir)
+const _kIntervalFrequencies = {'Her 8 saatte bir', 'Her 12 saatte bir'};
+
+// Kategorik label → varsayılan depolama saati
+const _kLabelDefaultTimes = {
+  'Sabah':          '09:00',
+  'Öğle':           '13:00',
+  'Akşam':          '20:00',
+  'Yatmadan önce':  '22:00',
+  'Yemekten önce':  '12:30',
+  'Yemekten sonra': '13:00',
+  'Aç karnına':     '08:00',
+};
+
+// Türkçe hafta günleri (Haftada 1 kez için)
+const _kWeekdays = [
+  'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar',
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 class VoiceAssistantScreen extends StatefulWidget {
@@ -104,10 +123,23 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   late final Animation<double>   _pulseAnim;
 
   // ── Onay Bekliyor Durumu ──────────────────────────────────────────────────
-  String? _pendingAction;         // "delete_medication" | "log_dose"
+  String? _pendingAction;         // "delete_medication" | "log_dose" | "add_medication"
   int?    _pendingMedicationId;
   String? _pendingMedicationName;
   int?    _pendingDoseLogId;
+
+  // ── Konuşma Geçmişi (Groq'a bağlam için gönderilir) ─────────────────────
+  final List<Map<String, String>> _conversationHistory = [];
+
+  void _addToHistory(String role, String content) {
+    _conversationHistory.add({'role': role, 'content': content});
+    // Son 10 mesajı (5 tur) tut
+    if (_conversationHistory.length > 10) {
+      _conversationHistory.removeAt(0);
+    }
+    // Mikrofon yolu da bu geçmişi kullansın
+    _ctrl.conversationHistory = List.from(_conversationHistory);
+  }
 
   static final _rYes = RegExp(r'\b(evet|tamam|onayla|onay|ok|sil|evet sil|kabul)\b', caseSensitive: false, unicode: true);
   static final _rNo  = RegExp(r'\b(hayır|hayir|iptal|vazgeç|vazgec|dur|istemiyorum)\b', caseSensitive: false, unicode: true);
@@ -119,7 +151,17 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   String? _wizardDosageForm;
   String? _wizardFrequency;
   String? _wizardUsageTime;
+  String? _wizardWeekday;   // 'Haftada 1 kez' için gün adı ('Örn: Pazartesi')
+  final List<String> _wizardDoseSlots = []; // Kategorik: toplanan slot string'leri
   DateTime? _wizardExpiry;
+
+  /// Kategorik sıklıktan kaç slot gerektiğini döner
+  int get _wizardRequiredSlots {
+    final freq = _wizardFrequency ?? '';
+    if (freq.contains('Günde 2')) return 2;
+    if (freq.contains('Günde 3')) return 3;
+    return 1;
+  }
 
   bool get _wizardActive => _wizardStep != _WizardStep.none;
 
@@ -134,12 +176,16 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
     // Groq yanıtı (sesli yol) → AI balonuna ekle + TTS + action işle
     _ctrl.onGroqAnswer = (result) {
       final spoken = _ctrl.liveTranscript.trim();
-      if (spoken.isNotEmpty) _push(_Msg(_MsgSource.user, spoken));
+      if (spoken.isNotEmpty) {
+        _push(_Msg(_MsgSource.user, spoken));
+        _addToHistory('user', spoken);
+      }
       _removeThinking();
       _push(_Msg(_MsgSource.ai, result.answer!));
+      _addToHistory('assistant', result.answer!);
       _ctrl.speak(result.answer!).ignore();
 
-      // Action varsa onay bekleme moduna geç
+      // Tüm action türleri için onay bekle — wizard add_medication için onay sonrası başlar
       if (result.action != null) {
         setState(() {
           _pendingAction         = result.action;
@@ -233,20 +279,23 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
     }
 
     _addThinking();
+    _addToHistory('user', text);
 
     final api = context.read<ApiService>();
     try {
-      final result = await api.voiceQuery(text);
+      final result = await api.voiceQuery(
+        text,
+        conversationHistory: List.from(_conversationHistory),
+      );
       _removeThinking();
 
       if (!result.isFallback) {
         _push(_Msg(_MsgSource.ai, result.answer!));
+        _addToHistory('assistant', result.answer!);
         await _ctrl.speak(result.answer!);
 
-        // add_medication → sihirbazı başlat, delete → onay bekle, log_dose → onay bekle
-        if (result.action == 'add_medication') {
-          await _wizardStart(result.medicationName);
-        } else if (result.action == 'delete_medication' || result.action == 'log_dose') {
+        // Tüm actionlar için onay bekle — add_medication için wizard onay sonrası başlar
+        if (result.action != null) {
           setState(() {
             _pendingAction         = result.action;
             _pendingMedicationId   = result.medicationId;
@@ -281,6 +330,17 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
         await _executDelete();
       } else if (_pendingAction == 'log_dose') {
         await _executeLogDose();
+      } else if (_pendingAction == 'add_medication') {
+        // Onay alındı — şimdi wizard başlat
+        final medName = _pendingMedicationName;
+        setState(() {
+          _pendingAction = null;
+          _pendingMedicationId = null;
+          _pendingMedicationName = null;
+          _pendingDoseLogId = null;
+        });
+        await _wizardStart(medName);
+        return;
       }
     } else if (_rNo.hasMatch(norm)) {
       final msg = 'Tamam, işlem iptal edildi.';
@@ -360,6 +420,8 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
       _wizardDosageForm   = null;
       _wizardFrequency    = null;
       _wizardUsageTime    = null;
+      _wizardWeekday      = null;
+      _wizardDoseSlots.clear();
       _wizardExpiry       = null;
     });
   }
@@ -437,6 +499,12 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   }
 
   Future<void> _wizardHandleSelection(String norm) async {
+    // "evet/tamam" tek aday varsa veya önceki seçimde kullanılmışsa direkt onayla
+    if (_rYes.hasMatch(norm) && _wizardCandidates.length == 1) {
+      await _wizardHandleSelection('1');
+      return;
+    }
+
     // Numara ile seçim (birinci/1, ikinci/2 ...)
     final num = _parseOrdinal(norm);
     MedSearchResult? picked;
@@ -455,8 +523,9 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
     }
 
     if (picked == null) {
-      // Yeni arama mı yapıyorlar?
-      if (norm.length >= 3) {
+      // Yeni arama mı yapıyorlar? (onay/ret kelimeleri hariç)
+      final isCommonWord = _rYes.hasMatch(norm) || _rNo.hasMatch(norm);
+      if (!isCommonWord && norm.length >= 3) {
         await _wizardSearch(norm);
         return;
       }
@@ -502,30 +571,153 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
       await _ctrl.speak(msg);
       return;
     }
-    setState(() {
-      _wizardFrequency = match;
-      _wizardStep      = _WizardStep.usageTime;
-    });
-    final msg = '$match. Peki ne zaman alıyorsunuz? ${_kUsageTimes.join(', ')}';
-    _push(_Msg(_MsgSource.ai, msg));
-    await _ctrl.speak(msg);
+    setState(() { _wizardFrequency = match; });
+
+    if (match == 'Gerektiğinde') {
+      // Kullanım zamanı gerekmez → doğrudan son kullanma tarihe
+      setState(() {
+        _wizardUsageTime = 'as_needed';
+        _wizardStep      = _WizardStep.expiryDate;
+      });
+      const msg = 'Tamam. Son kullanma tarihi? Ay ve yıl olarak söyleyin. Örnek: Aralık 2027';
+      _push(_Msg(_MsgSource.ai, msg));
+      await _ctrl.speak(msg);
+    } else if (_kIntervalFrequencies.contains(match)) {
+      // Saatlik aralık → HH:MM formatında ilk doz saati
+      setState(() { _wizardStep = _WizardStep.usageTime; });
+      final msg = '$match seçildi. İlk dozu hangi saatten itibaren alacaksınız? '
+                  'Saat söyleyin, örnek: 08:00';
+      _push(_Msg(_MsgSource.ai, msg));
+      await _ctrl.speak(msg);
+    } else if (match == 'Haftada 1 kez') {
+      // Haftalık → önce gün, sonra saat
+      setState(() { _wizardStep = _WizardStep.usageTime; });
+      final msg = '$match seçildi. Haftanın hangi günü? ${_kWeekdays.join(', ')}';
+      _push(_Msg(_MsgSource.ai, msg));
+      await _ctrl.speak(msg);
+    } else {
+      // Kategorik (Günde 1/2/3 kez) → zaman etiketi(leri)
+      setState(() {
+        _wizardStep = _WizardStep.usageTime;
+        _wizardDoseSlots.clear();
+      });
+      final needed = _wizardRequiredSlots;
+      final prefix = needed > 1 ? '1. doz' : 'Doz';
+      final msg = '$match. $prefix ne zaman? ${_kUsageTimes.join(', ')}';
+      _push(_Msg(_MsgSource.ai, msg));
+      await _ctrl.speak(msg);
+    }
   }
 
   Future<void> _wizardHandleUsageTime(String norm) async {
-    final match = _matchFromList(_kUsageTimes, norm);
-    if (match == null) {
-      final msg = 'Anlayamadım. Şunlardan birini söyleyin: ${_kUsageTimes.join(', ')}';
+    final freq = _wizardFrequency ?? '';
+
+    if (_kIntervalFrequencies.contains(freq)) {
+      // HH:MM formatında ilk doz saati bekleniyor
+      final timeStr = _parseHHMM(norm);
+      if (timeStr == null) {
+        const msg = 'Saat anlaşılamadı. Örnek: "08:00" veya "sabah sekiz" şeklinde söyleyin.';
+        _push(_Msg(_MsgSource.ai, msg));
+        await _ctrl.speak(msg);
+        return;
+      }
+      setState(() {
+        _wizardUsageTime = timeStr;
+        _wizardStep      = _WizardStep.expiryDate;
+      });
+      const msg = 'Tamam. Son kullanma tarihi? Ay ve yıl olarak söyleyin. Örnek: Aralık 2027';
       _push(_Msg(_MsgSource.ai, msg));
       await _ctrl.speak(msg);
-      return;
+
+    } else if (freq == 'Haftada 1 kez') {
+      if (_wizardWeekday == null) {
+        // Aşama 1: Gün seçimi
+        final day = _matchFromList(_kWeekdays, norm);
+        if (day == null) {
+          final msg = 'Gün anlaşılamadı. Şunlardan birini söyleyin: ${_kWeekdays.join(', ')}';
+          _push(_Msg(_MsgSource.ai, msg));
+          await _ctrl.speak(msg);
+          return;
+        }
+        setState(() { _wizardWeekday = day; });
+        final msg = '$day seçildi. Saat kaçta alacaksınız? Örnek: 09:00';
+        _push(_Msg(_MsgSource.ai, msg));
+        await _ctrl.speak(msg);
+        // Adım hâlâ usageTime — sıradaki girişte saat sorulacak
+      } else {
+        // Aşama 2: Saat girişi
+        final timeStr = _parseHHMM(norm);
+        if (timeStr == null) {
+          const msg = 'Saat anlaşılamadı. Örnek: "09:00" şeklinde söyleyin.';
+          _push(_Msg(_MsgSource.ai, msg));
+          await _ctrl.speak(msg);
+          return;
+        }
+        setState(() {
+          _wizardUsageTime = '$_wizardWeekday|$timeStr';
+          _wizardStep      = _WizardStep.expiryDate;
+        });
+        const msg = 'Tamam. Son kullanma tarihi? Ay ve yıl olarak söyleyin. Örnek: Aralık 2027';
+        _push(_Msg(_MsgSource.ai, msg));
+        await _ctrl.speak(msg);
+      }
+
+    } else {
+      // Kategorik sıklık — zaman etiketi(leri) birer birer toplanır
+      // Zaten seçilen etiketleri çıkar
+      final collectedLabels = _wizardDoseSlots.map((s) => s.split('|').first).toSet();
+      final available = _kUsageTimes.where((t) => !collectedLabels.contains(t)).toList();
+
+      // Girilen metni önce kalan seçeneklerle, bulamazsa tüm listeyle eşleştir
+      final match = _matchFromList(available, norm) ?? _matchFromList(_kUsageTimes, norm);
+      if (match == null) {
+        final opts = available.isEmpty ? _kUsageTimes.join(', ') : available.join(', ');
+        final msg = 'Anlayamadım. Şunlardan birini söyleyin: $opts';
+        _push(_Msg(_MsgSource.ai, msg));
+        await _ctrl.speak(msg);
+        return;
+      }
+
+      // Zaten seçilmiş etiket tekrar girilmesin
+      if (collectedLabels.contains(match)) {
+        final opts = available.join(', ');
+        final msg = '"$match" zaten seçili. Farklı bir zaman seçin: $opts';
+        _push(_Msg(_MsgSource.ai, msg));
+        await _ctrl.speak(msg);
+        return;
+      }
+
+      final defaultTime = _kLabelDefaultTimes[match] ?? '09:00';
+      final slotStr = '$match|$defaultTime';
+      final needed = _wizardRequiredSlots;
+
+      if (_wizardDoseSlots.length + 1 < needed) {
+        // Daha fazla slot gerekli — bir sonrakini sor
+        setState(() { _wizardDoseSlots.add(slotStr); });
+        final nextNum = _wizardDoseSlots.length + 1;
+        final collectedNow = _wizardDoseSlots.map((s) => s.split('|').first).toSet();
+        final remaining = _kUsageTimes.where((t) => !collectedNow.contains(t)).toList();
+        final msg = '$match eklendi (varsayılan saat: $defaultTime). $nextNum. doz ne zaman? ${remaining.join(', ')}';
+        _push(_Msg(_MsgSource.ai, msg));
+        await _ctrl.speak(msg);
+      } else {
+        // Tüm slotlar toplandı — usageTime string'ini oluştur, expiry'e geç
+        final allSlots = [..._wizardDoseSlots, slotStr];
+        final timesSummary = allSlots
+            .map((s) { final p = s.split('|'); return '${p[0]} ${p[1]}'; })
+            .join(', ');
+        setState(() {
+          _wizardUsageTime = allSlots.join(';'); // 'Sabah|09:00;Akşam|20:00'
+          _wizardDoseSlots.clear();
+          _wizardStep = _WizardStep.expiryDate;
+        });
+        final msg = 'Doz zamanları: $timesSummary (varsayılan saatler). '
+            'Saatleri özelleştirmek isterseniz uygulamadaki Profil bölümünden güncelleyebilirsiniz. '
+            'Son kullanma tarihi? Ay ve yıl olarak söyleyin. Örnek: Aralık 2027';
+        _push(_Msg(_MsgSource.ai, msg));
+        await _ctrl.speak(msg);
+      }
     }
-    setState(() {
-      _wizardUsageTime = match;
-      _wizardStep      = _WizardStep.expiryDate;
-    });
-    const msg = 'Tamam. Son kullanma tarihi? Ay ve yıl olarak söyleyin. Örnek: Aralık 2027';
-    _push(_Msg(_MsgSource.ai, msg));
-    await _ctrl.speak(msg);
   }
 
   Future<void> _wizardHandleExpiry(String norm) async {
@@ -540,10 +732,11 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
       _wizardExpiry = dt;
       _wizardStep   = _WizardStep.confirm;
     });
-    final med   = _wizardSelectedMed!.productName;
+    final med    = _wizardSelectedMed!.productName;
     final expStr = '${dt.month}/${dt.year}';
+    final usageDisplay = _formatUsageTimeDisplay(_wizardUsageTime);
     final msg = 'Özet: $med, $_wizardDosageForm, $_wizardFrequency, '
-                '$_wizardUsageTime, son kullanma $expStr. Ekleyeyim mi?';
+                '$usageDisplay, son kullanma $expStr. Ekleyeyim mi?';
     _push(_Msg(_MsgSource.ai, msg));
     await _ctrl.speak(msg);
   }
@@ -595,6 +788,33 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   }
 
   // ── Yardımcı Çözümleyiciler ───────────────────────────────────────────────
+
+  /// "08:00", "Sabah|09:00", "Pazartesi|09:00" → insan dostu gösterim
+  String _formatUsageTimeDisplay(String? usageTime) {
+    if (usageTime == null) return '';
+    if (usageTime == 'as_needed') return 'Gerektiğinde';
+    final parts = usageTime.split('|');
+    if (parts.length >= 2) return '${parts[0]} (${parts[1]})';
+    return usageTime;
+  }
+
+  /// "08:00", "8", "9:30", "sabah sekiz" → "08:00" (HH:MM) ya da null
+  String? _parseHHMM(String norm) {
+    // Doğrudan HH:MM
+    final direct = RegExp(r'\b([01]?\d|2[0-3]):([0-5]\d)\b').firstMatch(norm);
+    if (direct != null) {
+      final h = int.parse(direct.group(1)!).toString().padLeft(2, '0');
+      final m = direct.group(2)!.padLeft(2, '0');
+      return '$h:$m';
+    }
+    // Sadece saat rakamı: "8", "sabah 8", "saat 8"
+    final hourOnly = RegExp(r'\b([01]?\d|2[0-3])\b').firstMatch(norm);
+    if (hourOnly != null) {
+      final h = int.parse(hourOnly.group(1)!).toString().padLeft(2, '0');
+      return '$h:00';
+    }
+    return null;
+  }
 
   /// Sıralı sayı (birinci/1/bir) → 1-tabanlı int
   int? _parseOrdinal(String norm) {
@@ -749,8 +969,22 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
               _OptionChips(options: _kDosageForms, onSelect: _sendQuery),
             if (_wizardStep == _WizardStep.frequency)
               _OptionChips(options: _kFrequencies, onSelect: _sendQuery),
-            if (_wizardStep == _WizardStep.usageTime)
-              _OptionChips(options: _kUsageTimes, onSelect: _sendQuery),
+            // Kullanım zamanı adımı: sıklığa göre farklı çipler
+            if (_wizardStep == _WizardStep.usageTime &&
+                !_kIntervalFrequencies.contains(_wizardFrequency) &&
+                _wizardFrequency != 'Haftada 1 kez')
+              _OptionChips(
+                options: _kUsageTimes
+                    .where((t) => !_wizardDoseSlots
+                        .map((s) => s.split('|').first)
+                        .contains(t))
+                    .toList(),
+                onSelect: _sendQuery,
+              ),
+            if (_wizardStep == _WizardStep.usageTime &&
+                _wizardFrequency == 'Haftada 1 kez' &&
+                _wizardWeekday == null)
+              _OptionChips(options: _kWeekdays, onSelect: _sendQuery),
             if (_wizardStep == _WizardStep.confirm ||
                 _pendingAction != null)
               Padding(

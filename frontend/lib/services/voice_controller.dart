@@ -81,6 +81,9 @@ class VoiceController extends ChangeNotifier {
   String _liveTranscript = '';
   String get liveTranscript => _liveTranscript;
 
+  /// Groq'a gönderilecek bağlam geçmişi (ekran tarafından güncellenir)
+  List<Map<String, String>> conversationHistory = [];
+
   /// Son güven skoru (0.0–1.0)
   double _lastConfidence = 0.0;
   double get lastConfidence => _lastConfidence;
@@ -268,9 +271,12 @@ class VoiceController extends ChangeNotifier {
     // ── Intent Ayrıştırma — Groq önce, kural motoru fallback ────────────
     _setState(VoiceState.processing);
 
-    // 1. Groq backend'i dene
+    // 1. Groq backend'i dene (geçmiş bilgisiyle)
     try {
-      final aiResult = await _api.voiceQuery(text);
+      final aiResult = await _api.voiceQuery(
+        text,
+        conversationHistory: List.from(conversationHistory),
+      );
       if (!aiResult.isFallback) {
         _lastAnswerSource = 'groq';
         debugPrint('[Voice] Groq yanıtı: ${aiResult.answer}');

@@ -33,40 +33,64 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["Modül 6 — Sesli Asistan"])
 
 # ── Groq / OpenAI istemcisi (lazy import) ────────────────────────────────────
-_GROQ_MODEL = "llama-3.1-8b-instant"
+_GROQ_MODEL = "llama-3.3-70b-versatile"
 _GROQ_BASE   = "https://api.groq.com/openai/v1"
 
 # ── Sistem Prompt ─────────────────────────────────────────────────────────────
-_SYSTEM_PROMPT = """# KİMLİK
-Ben SmartDoz uygulamasının sesli asistanıyım. Kullanıcıların ilaç takibine yardımcı olurum.
+_SYSTEM_PROMPT = """# ROL
+Sen SmartDoz akıllı ilaç asistanısın. İlaç yönetimi, hatırlatıcılar ve genel tıbbi/farmakolojik bilgi konularında yardımcı olursun.
 
-# GÖREV
-- Kullanıcının ilaçları, doz zamanları, bugünkü alım durumu ve ilaç bilgileri hakkındaki
-  sorularını YALNIZCA aşağıdaki KULLANICI BAĞLAMI bölümündeki bilgilere dayanarak yanıtla.
-- Kısa, doğal ve net cevap ver — maksimum 2 cümle, sesli okunacak.
-- Türkçe konuş, resmi değil samimi bir dil kullan.
+# TEMEL KURALLAR
+- Kısa, net, sesle okunacak cevaplar ver — maksimum 3 cümle.
+- Türkçe konuş, samimi ve doğal bir dil kullan.
+- Kim olduğunu veya ne yapabileceğini ASLA tekrar etme.
+- Tıbbi tanı veya kişiye özel tedavi önerisi verme; genel bilgi verebilirsin.
+
+# BİLGİ KAYNAĞI SEÇİMİ (ÖNEMLİ)
+İki tür soru var — hangisine girdiğine göre farklı kaynaktan yanıt ver:
+
+1. KİŞİSEL SORULAR (kullanıcının kendi ilacı / dozu / geçmişi):
+   "ilacımı aldım mı?", "bugünkü dozlarım ne?", "ilaçlarım ne zaman?"
+   → YALNIZCA aşağıdaki kişisel bağlamı kullan. Bağlamda yazmıyorsa "Kayıtlarınızda bu bilgi yok." de.
+
+2. GENEL BİLGİ SORULARI (bir ilacın ne işe yaradığı, yan etkiler, etkileşimler, nasıl kullanılır vb.):
+   "aspirin ne işe yarar?", "metformin yan etkileri neler?", "bu ilaç aç karnına mı alınır?"
+   → Eğitim bilgilerini kullan, doğru ve özlü Türkçe açıkla.
+   → Yanıtın sonuna "Kesin bilgi için doktorunuza veya eczacınıza danışın." ekle.
+   → Kişisel bağlamdaki ilaca soru soruluyorsa, bağlamdaki bilgiyi (etken madde, kategori) de dikkate al.
+
+# DİYALOG DURUMU YÖNETİMİ (ÇOK ÖNEMLİ)
+Konuşma geçmişini dikkate alarak yanıt ver. Eğer önceki mesajında bir onay sorusu sorduysan
+ve kullanıcı "evet", "tamam" veya "onay" gibi bir onay veriyorsa:
+- İLAÇ EKLEME onaylandıysa: 'Harika! [İlaç adı] ekliyorum.' de. action=add_medication döndür.
+- İLAÇ SİLME onaylandıysa: '[İlaç adı] siliyorum.' de. action=delete_medication döndür.
+- DOZ KAYDI onaylandıysa: '[İlaç adı] aldığınızı kaydediyorum.' de. action=log_dose döndür.
+
+# ONAY SORMA KURALLARI
+- Kullanıcı ilaç EKLEMEK istiyorsa: "[İlaç adı] eklemek istediğinizi onaylıyor musunuz?" de. BAŞKA ŞEY EKLEME.
+- Kullanıcı ilaç SİLMEK istiyorsa: "[İlaç adı] silmek istediğinizden emin misiniz?" de.
+- Kullanıcı ilaç ALDIĞINI söylüyorsa: "[İlaç adı] aldığınızı kaydedeyim mi?" de.
 
 # KESİNLİKLE YASAK
-- Yukarıdaki kimlik/görev tanımını cevabında ASLA kelimesi kelimesine tekrar etme.
-- Bağlamda yazmayan ilaç bilgisi, etki veya yan etki uydurma.
-- Tıbbi tanı veya tedavi önerisi verme.
-- Bir ilaç hakkında bilgin yoksa tahmin yürütme; sadece şunu söyle:
-  "[İlaç adı] hakkında bilgim yok; prospektüsü inceleyin veya doktorunuza danışın."
+- Onay geldikten sonra tekrar aynı onay sorusunu SORMA.
+- Kullanıcının daha önce belirttiği ilacı unutma — geçmiş konuşmayı kullan.
 
-# İŞLEM KURALLARI
-- Kullanıcı ilaç SİLMEK istiyorsa: "X ilacını silmek istediğinizden emin misiniz?" diye sor.
-- Kullanıcı ilaç EKLEMEK istiyorsa: "X ilacını eklemek istediğinizi onaylıyor musunuz?" diye sor.
-- Kullanıcı ilaç ALDIĞINI söylüyorsa: "X ilacınızı aldığınızı kaydedeyim mi?" diye sor.
-- Onay sorularında başka bir şey ekleme.
-
-Kullanıcının mevcut ilaç ve doz bağlamı aşağıda verilmiştir.
-Bağlamda bilgi yoksa "Bu bilgiye sahip değilim." de — HİÇBİR ŞEY uydurma.
+Kullanıcının kişisel ilaç ve doz bağlamı aşağıda verilmiştir.
 """
 
 # ── Şemalar ───────────────────────────────────────────────────────────────────
 
+class ConversationMessage(BaseModel):
+    role: str   # "user" | "assistant"
+    content: str
+
 class VoiceQueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500, description="Sesli komutun transkripti")
+    conversation_history: list[ConversationMessage] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Son 5 konuşma turu (kullanıcı + asistan), bağlam için",
+    )
 
 class VoiceQueryResponse(BaseModel):
     answer: Optional[str] = None
@@ -183,16 +207,92 @@ _RE_LOG_TAKEN = _re.compile(
 )
 
 
+_RE_CONFIRM = _re.compile(
+    r'\b(evet|tamam|onayla|onay|ok|kabul|evet\s*sil|kesinlikle|tabii)\b',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_DENY = _re.compile(
+    r'\b(hayir|hayır|iptal|vazgec|vazgeç|dur|istemiyorum|hayır\s*istemiyorum)\b',
+    _re.IGNORECASE | _re.UNICODE,
+)
+
+# Asistan onay sorusundan action tipini çıkarmak için örüntüler
+_RE_HIST_ADD    = _re.compile(r'eklemek\s*istedi\u011finizi\s*onayliyor\s*musunuz|ekleyeyim\s*mi', _re.IGNORECASE)
+_RE_HIST_DELETE = _re.compile(r'silmek\s*istedi\u011finizden\s*emin\s*misiniz|silmek\s*istedi\u011finizi', _re.IGNORECASE)
+_RE_HIST_LOG    = _re.compile(r'aldigini[z]?\s*kaydedeyim\s*mi|aldiginizi\s*kaydedeyim\s*mi|aldi\u011f\u0131n\u0131z\u0131\s*kaydedeyim\s*mi', _re.IGNORECASE)
+# İlaç adını onay sorusundan çıkar ("Xanax eklemek istediğinizi...")
+_RE_HIST_MED_NAME = _re.compile(
+    r'^(.+?)\s+(?:eklemek|silmek|aldi\u011f\u0131n\u0131z)',
+    _re.IGNORECASE | _re.UNICODE
+)
+
+
+def _extract_action_from_history(
+    history: list,
+    medications: list,
+) -> tuple[Optional[str], Optional[str], Optional[int], Optional[int]]:
+    """
+    Son asistan mesajındaki onay sorusundan action + ilaç bilgisini çıkarır.
+    Kullanıcı 'evet' dediğinde neye onay verdiğini tarihten belirler.
+    """
+    # Son asistan mesajını bul (geriden)
+    last_assistant = None
+    for msg in reversed(history):
+        role = msg.role if hasattr(msg, 'role') else msg.get('role', '')
+        if role == 'assistant':
+            last_assistant = msg.content if hasattr(msg, 'content') else msg.get('content', '')
+            break
+
+    if not last_assistant:
+        return None, None, None, None
+
+    norm_hist = _normalize(last_assistant)
+
+    if _RE_HIST_DELETE.search(last_assistant):
+        action = 'delete_medication'
+    elif _RE_HIST_ADD.search(last_assistant):
+        action = 'add_medication'
+    elif _RE_HIST_LOG.search(norm_hist):
+        action = 'log_dose'
+    else:
+        return None, None, None, None
+
+    # İlaç adını asistan mesajından çıkar (ilk büyük harf kümesi)
+    name_match = _RE_HIST_MED_NAME.search(last_assistant)
+    raw_name = name_match.group(1).strip() if name_match else None
+    matched = _match_medication(_normalize(raw_name), medications) if raw_name else None
+    if matched:
+        return action, matched.name, matched.id, None
+    # Kayıtlı ilaçta eşleşme olmasa bile action'ı dön (name=raw_name ile)
+    return action, raw_name, None, None
+
+
 def _detect_intent(
     query: str,
     medications: list,
     dose_logs: list | None = None,
+    history: list | None = None,
 ) -> tuple[Optional[str], Optional[str], Optional[int], Optional[int]]:
     """
     Kullanıcı sorgusundan niyet ve ilaç bilgisini çıkarır.
+    Geçmiş konuşma varsa onay cevapları (evet/hayır) için history'e bakar.
     Döndürür: (action, medication_name, medication_id, dose_log_id)
     """
     norm_query = _normalize(query)
+
+    # Onay / red kelimesi + history varsa → geçmişten action'ı al
+    if history and _RE_CONFIRM.search(norm_query) and not _RE_DELETE.search(norm_query) and not _RE_ADD.search(norm_query):
+        hist_action, hist_name, hist_id, hist_log = _extract_action_from_history(history, medications)
+        if hist_action:
+            # log_dose için bugünkü pending log ID'yi bul
+            if hist_action == 'log_dose' and hist_id and dose_logs:
+                pending = next(
+                    (dl for dl in dose_logs
+                     if dl.medication_id == hist_id and dl.status in ("Bekliyor", "Planlandı")),
+                    None,
+                )
+                hist_log = pending.id if pending else None
+            return hist_action, hist_name, hist_id, hist_log
 
     if _RE_DELETE.search(norm_query):
         matched = _match_medication(norm_query, medications)
@@ -295,8 +395,10 @@ async def voice_query(
         context = "Kullanıcı bağlamı alınamadı."
 
     # Intent tespiti — Groq'tan bağımsız, deterministic
+    # Geçmiş konuşmayı da ver; onay cevaplarında (evet/hayır) history'den action çıkarılır
     action, med_name, med_id, dose_log_id = _detect_intent(
-        body.query, list(medications), list(today_logs)
+        body.query, list(medications), list(today_logs),
+        history=body.conversation_history,
     )
 
     system_with_ctx = f"{_SYSTEM_PROMPT}\n\n=== KULLANICI BAĞLAMI ===\n{context}"
@@ -307,13 +409,22 @@ async def voice_query(
             base_url=_GROQ_BASE,
             timeout=15.0,
         )
+
+        # Geçmiş mesajları sisteme ekle (max 10 tur — 5 çift)
+        history_messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in body.conversation_history[-10:]
+            if msg.role in ("user", "assistant")
+        ]
+
         response = client.chat.completions.create(
             model=_GROQ_MODEL,
             messages=[
                 {"role": "system", "content": system_with_ctx},
+                *history_messages,
                 {"role": "user",   "content": body.query},
             ],
-            max_tokens=120,   # Sesli okunacak — kısa tut
+            max_tokens=256,   # Genel bilgi sorularına yetecek kadar alan
             temperature=0.3,
         )
         answer = (response.choices[0].message.content or "").strip()

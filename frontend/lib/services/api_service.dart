@@ -658,12 +658,18 @@ class ApiService extends ChangeNotifier {
   /// Sesli komutun transkriptini backend üzerinden Groq Llama 3.1'e iletir.
   /// Backend GROQ_API_KEY yoksa veya Groq hata verirse [VoiceAIResult.isFallback]
   /// true döner ve Flutter kural motoru devreye girer.
-  Future<VoiceAIResult> voiceQuery(String query) async {
+  Future<VoiceAIResult> voiceQuery(
+    String query, {
+    List<Map<String, String>> conversationHistory = const [],
+  }) async {
     try {
       final response = await http.post(
         Uri.parse('$_kBaseUrl/ai/voice-query'),
         headers: _authHeaders,
-        body: jsonEncode({'query': query}),
+        body: jsonEncode({
+          'query': query,
+          'conversation_history': conversationHistory,
+        }),
       );
 
       if (response.statusCode == 200) {
