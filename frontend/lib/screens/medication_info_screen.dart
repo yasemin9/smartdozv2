@@ -9,6 +9,7 @@
 ///   - AI sorumluluk reddi her zaman gösterilir
 ///   - Kart-tabanlı, okunabilir tipografi ile
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:provider/provider.dart';
 
 import '../models/medication_summary.dart';
@@ -64,11 +65,20 @@ class MedicationInfoScreen extends StatefulWidget {
 
 class _MedicationInfoScreenState extends State<MedicationInfoScreen> {
   late Future<MedicationSummary> _summaryFuture;
+  late final _TtsController _tts;
 
   @override
   void initState() {
     super.initState();
+    _tts = _TtsController();
+    _tts.init();
     _summaryFuture = _fetchSummary();
+  }
+
+  @override
+  void dispose() {
+    _tts.dispose();
+    super.dispose();
   }
 
   Future<MedicationSummary> _fetchSummary() {
@@ -97,6 +107,10 @@ class _MedicationInfoScreenState extends State<MedicationInfoScreen> {
         foregroundColor: const Color(0xFF1A237E),
         elevation: 0,
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Center(child: _SpeedButton(tts: _tts)),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Yenile',
@@ -121,9 +135,192 @@ class _MedicationInfoScreenState extends State<MedicationInfoScreen> {
           if (!snapshot.hasData) {
             return const Center(child: Text('Veri bulunamadı.'));
           }
-          return _SummaryBody(summary: snapshot.data!);
+          return _SummaryBody(summary: snapshot.data!, tts: _tts);
         },
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prospektüs Eksik Fallback Sabiti
+// Backend'den gelen bu metin tespit edildiğinde özel bir bilgilendirme
+// bloğu gösterilir; normal madde işareti yerine info-banner kullanılır.
+// ─────────────────────────────────────────────────────────────────────────────
+const String _kProspectusUnavailable =
+    'Bu ilaca ait detaylı prospektüs bilgisi şu an sistemimizde güncellenmektedir. '
+    'En doğru bilgi için lütfen doktorunuza veya eczacınıza danışınız.';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TTS Kontrolcüsü — FlutterTts sarmalayıcısı, kart bazlı çalma/durma
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// flutter_tts için hız eşleme tablosu.
+/// FlutterTts'te 0.5 = normal konuşma hızı (1×).
+/// Kullanıcıya gösterilen 1×–2× değerleri buna oranlanır.
+const List<double> _kTtsRates   = [0.50, 0.625, 0.75, 0.875, 1.0];
+const List<String> _kTtsLabels  = ['1×', '1.25×', '1.5×', '1.75×', '2×'];
+
+class _TtsController extends ChangeNotifier {
+  final FlutterTts _tts = FlutterTts();
+  String? _activeCardId;
+  String? _lastText; // hız değişince yeniden başlatmak için saklanır
+  bool _speaking = false;
+  bool _disposed = false; // async callback'lerin dispose sonrası patlamasını önler
+  int _speedIndex = 0;
+
+  bool isSpeaking(String cardId) => _speaking && _activeCardId == cardId;
+  bool get anyActive => _speaking;
+
+  int    get speedIndex => _speedIndex;
+  String get speedLabel => _kTtsLabels[_speedIndex];
+  double get _rate      => _kTtsRates[_speedIndex];
+
+  Future<void> init() async {
+    await _tts.setLanguage('tr-TR');
+    await _tts.setSpeechRate(_rate);
+    await _tts.setPitch(1.0);
+    await _tts.setVolume(1.0);
+
+    _tts.setCompletionHandler(_onDone);
+    _tts.setCancelHandler(_onDone);
+    // Web'deki SpeechSynthesisErrorEvent'leri sessizce yakala,
+    // dispose sonrası notifyListeners çağrısını engelle.
+    _tts.setErrorHandler((_) => _onDone());
+  }
+
+  /// Hız indeksini günceller.
+  /// Okuma devam ediyorsa durdurur ve yeni hızla yeniden başlatır.
+  Future<void> setSpeedIndex(int index) async {
+    if (_disposed || index == _speedIndex) return;
+    _speedIndex = index;
+    await _tts.setSpeechRate(_rate);
+    if (_disposed) return;
+
+    // Web'de setSpeechRate devam eden konuşmaya uygulanmaz;
+    // yeniden başlatmak gerekir.
+    if (_speaking && _lastText != null) {
+      await _tts.stop();
+      if (_disposed) return;
+      await _tts.speak(_lastText!);
+      if (_disposed) return;
+    }
+    notifyListeners();
+  }
+
+  void _onDone() {
+    if (_disposed) return; // dispose sonrası callback → yoksay
+    _speaking = false;
+    _activeCardId = null;
+    _lastText = null;
+    notifyListeners();
+  }
+
+  /// Kartı sesle oku ya da zaten okunuyorsa durdur.
+  Future<void> toggle(String cardId, String text) async {
+    if (_disposed) return;
+
+    if (_speaking && _activeCardId == cardId) {
+      // Aynı kart → durdur
+      await _tts.stop();
+      if (_disposed) return;
+      _speaking = false;
+      _activeCardId = null;
+      _lastText = null;
+      notifyListeners();
+      return;
+    }
+
+    if (_speaking) {
+      await _tts.stop();
+      if (_disposed) return;
+    }
+
+    _activeCardId = cardId;
+    _lastText = text;
+    _speaking = true;
+    notifyListeners();
+    await _tts.speak(text);
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _tts.stop();
+    super.dispose();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hız Seçici Buton — popup menu ile 1× / 1.25× / 1.5× / 1.75× / 2×
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SpeedButton extends StatelessWidget {
+  const _SpeedButton({required this.tts});
+  final _TtsController tts;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: tts,
+      builder: (ctx, _) {
+        return PopupMenuButton<int>(
+          tooltip: 'Konuşma Hızı',
+          offset: const Offset(0, 40),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          onSelected: tts.setSpeedIndex,
+          itemBuilder: (_) => List.generate(
+            _kTtsLabels.length,
+            (i) => PopupMenuItem<int>(
+              value: i,
+              child: Row(
+                children: [
+                  Icon(
+                    tts.speedIndex == i
+                        ? Icons.radio_button_checked_rounded
+                        : Icons.radio_button_unchecked_rounded,
+                    color: const Color(0xFF1A237E),
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    _kTtsLabels[i],
+                    style: TextStyle(
+                      fontWeight: tts.speedIndex == i
+                          ? FontWeight.w700
+                          : FontWeight.normal,
+                      color: const Color(0xFF1A237E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A237E).withOpacity(0.08),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.speed_rounded,
+                    size: 16, color: Color(0xFF1A237E)),
+                const SizedBox(width: 4),
+                Text(
+                  tts.speedLabel,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1A237E),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -133,55 +330,58 @@ class _MedicationInfoScreenState extends State<MedicationInfoScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _SummaryBody extends StatelessWidget {
-  const _SummaryBody({required this.summary});
+  const _SummaryBody({required this.summary, required this.tts});
   final MedicationSummary summary;
+  final _TtsController tts;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      children: [
-        // ── İlaç Başlık Kartı
-        _HeaderCard(summary: summary),
-        const SizedBox(height: 16),
-
-        // ── 3-Kategori Özet Kartları
-        _CategoryCard(
-          emoji: '🌟',
-          title: 'Temel Faydası',
-          subtitle: 'Bu ilaç ne için kullanılır?',
-          bullets: summary.temelFaydasi,
-          accentColor: const Color(0xFF1565C0),
-          bgColor: const Color(0xFFE3F2FD),
-        ),
-        const SizedBox(height: 10),
-
-        _CategoryCard(
-          emoji: '🥄',
-          title: 'Kullanım Şekli',
-          subtitle: 'Nasıl ve ne kadar kullanılır?',
-          bullets: summary.kullanimSekli,
-          accentColor: const Color(0xFF2E7D32),
-          bgColor: const Color(0xFFE8F5E9),
-        ),
-        const SizedBox(height: 10),
-
-        _CategoryCard(
-          emoji: '⚠️',
-          title: 'Dikkat Edilecekler',
-          subtitle: 'Uyarılar ve olası yan etkiler',
-          bullets: summary.dikkatEdilecekler,
-          accentColor: const Color(0xFFBF360C),
-          bgColor: const Color(0xFFFFF3E0),
-        ),
-        const SizedBox(height: 18),
-
-        // ── YZ Sorumluluk Reddi
-        _DisclaimerCard(disclaimer: summary.disclaimer),
-      ],
+      children: _buildCards(summary, tts),
     );
   }
 }
+
+/// Hem tam ekran hem alt sheet tarafından paylaşılan kart listesi.
+List<Widget> _buildCards(MedicationSummary s, _TtsController tts) => [
+      _HeaderCard(summary: s),
+      const SizedBox(height: 16),
+      _CategoryCard(
+        emoji: '🌟',
+        title: 'Temel Faydası',
+        subtitle: 'Bu ilaç ne için kullanılır?',
+        bullets: s.temelFaydasi,
+        accentColor: const Color(0xFF1565C0),
+        bgColor: const Color(0xFFE3F2FD),
+        tts: tts,
+        cardId: 'temel',
+      ),
+      const SizedBox(height: 10),
+      _CategoryCard(
+        emoji: '🥄',
+        title: 'Kullanım Şekli',
+        subtitle: 'Nasıl ve ne kadar kullanılır?',
+        bullets: s.kullanimSekli,
+        accentColor: const Color(0xFF2E7D32),
+        bgColor: const Color(0xFFE8F5E9),
+        tts: tts,
+        cardId: 'kullanim',
+      ),
+      const SizedBox(height: 10),
+      _CategoryCard(
+        emoji: '⚠️',
+        title: 'Dikkat Edilecekler',
+        subtitle: 'Uyarılar ve olası yan etkiler',
+        bullets: s.dikkatEdilecekler,
+        accentColor: const Color(0xFFBF360C),
+        bgColor: const Color(0xFFFFF3E0),
+        tts: tts,
+        cardId: 'dikkat',
+      ),
+      const SizedBox(height: 18),
+      _DisclaimerCard(disclaimer: s.disclaimer),
+    ];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Header Kartı: İlaç adı + etkin madde + ATC + kategori + özet metodu
@@ -453,6 +653,8 @@ class _CategoryCard extends StatelessWidget {
     required this.bullets,
     required this.accentColor,
     required this.bgColor,
+    this.tts,
+    this.cardId = '',
   });
 
   final String emoji;
@@ -461,6 +663,13 @@ class _CategoryCard extends StatelessWidget {
   final List<String> bullets;
   final Color accentColor;
   final Color bgColor;
+  final _TtsController? tts;
+  final String cardId;
+
+  String get _readText {
+    final content = bullets.isEmpty ? 'Bilgi bulunamadı.' : bullets.join('. ');
+    return '$title. $content';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -488,26 +697,60 @@ class _CategoryCard extends StatelessWidget {
                 children: [
                   Text(emoji, style: const TextStyle(fontSize: 22)),
                   const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: accentColor,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: accentColor,
+                          ),
                         ),
-                      ),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: accentColor.withOpacity(0.7),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: accentColor.withOpacity(0.7),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+                  // ── Sesli Dinle butonu ──────────────────────────────────
+                  if (tts != null)
+                    ListenableBuilder(
+                      listenable: tts!,
+                      builder: (_, __) {
+                        final active = tts!.isSpeaking(cardId);
+                        return Tooltip(
+                          message: active ? 'Durdur' : 'Sesli Dinle',
+                          child: InkWell(
+                            onTap: () => tts!.toggle(cardId, _readText),
+                            borderRadius: BorderRadius.circular(20),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? accentColor.withOpacity(0.15)
+                                    : Colors.transparent,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                active
+                                    ? Icons.stop_circle_rounded
+                                    : Icons.volume_up_rounded,
+                                color: accentColor,
+                                size: 22,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
@@ -522,6 +765,45 @@ class _CategoryCard extends StatelessWidget {
                     fontSize: 13,
                     color: Colors.grey.shade500,
                     fontStyle: FontStyle.italic,
+                  ),
+                ),
+              )
+            else if (bullets.length == 1 &&
+                bullets.first == _kProspectusUnavailable)
+              // ── Profesyonel fallback banner (boş ekran gösterilmez) ──────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: accentColor.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: accentColor.withOpacity(0.25),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.update_rounded,
+                        color: accentColor.withOpacity(0.7),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _kProspectusUnavailable,
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.6,
+                            color: accentColor.withOpacity(0.85),
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               )
@@ -728,11 +1010,20 @@ class _MedSummarySheet extends StatefulWidget {
 
 class _MedSummarySheetState extends State<_MedSummarySheet> {
   late Future<MedicationSummary> _summaryFuture;
+  late final _TtsController _tts;
 
   @override
   void initState() {
     super.initState();
+    _tts = _TtsController();
+    _tts.init();
     _summaryFuture = _fetchSummary();
+  }
+
+  @override
+  void dispose() {
+    _tts.dispose();
+    super.dispose();
   }
 
   Future<MedicationSummary> _fetchSummary() {
@@ -788,6 +1079,7 @@ class _MedSummarySheetState extends State<_MedSummarySheet> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  _SpeedButton(tts: _tts),
                   IconButton(
                     icon: const Icon(Icons.refresh_rounded, size: 20),
                     onPressed: _reload,
@@ -826,38 +1118,7 @@ class _MedSummarySheetState extends State<_MedSummarySheet> {
                   return ListView(
                     controller: scrollController,
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                    children: [
-                      _HeaderCard(summary: summary),
-                      const SizedBox(height: 16),
-                      _CategoryCard(
-                        emoji: '🌟',
-                        title: 'Temel Faydası',
-                        subtitle: 'Bu ilaç ne için kullanılır?',
-                        bullets: summary.temelFaydasi,
-                        accentColor: const Color(0xFF1565C0),
-                        bgColor: const Color(0xFFE3F2FD),
-                      ),
-                      const SizedBox(height: 10),
-                      _CategoryCard(
-                        emoji: '🥄',
-                        title: 'Kullanım Şekli',
-                        subtitle: 'Nasıl ve ne kadar kullanılır?',
-                        bullets: summary.kullanimSekli,
-                        accentColor: const Color(0xFF2E7D32),
-                        bgColor: const Color(0xFFE8F5E9),
-                      ),
-                      const SizedBox(height: 10),
-                      _CategoryCard(
-                        emoji: '⚠️',
-                        title: 'Dikkat Edilecekler',
-                        subtitle: 'Uyarılar ve olası yan etkiler',
-                        bullets: summary.dikkatEdilecekler,
-                        accentColor: const Color(0xFFBF360C),
-                        bgColor: const Color(0xFFFFF3E0),
-                      ),
-                      const SizedBox(height: 18),
-                      _DisclaimerCard(disclaimer: summary.disclaimer),
-                    ],
+                    children: _buildCards(summary, _tts),
                   );
                 },
               ),

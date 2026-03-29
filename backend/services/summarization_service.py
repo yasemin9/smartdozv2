@@ -41,6 +41,16 @@ DISCLAIMER_SHORT = (
     "⚠️ Bu bir yapay zeka özetidir. Kesin bilgi için doktorunuza danışın."
 )
 
+# ── Eksik/Boş Prospektüs Marker & Fallback Metni ─────────────────────────────
+# Veritabanından gelen description 'İkinci siteye ait içerik bulunamadı.'
+# ifadesini içeriyorsa bu fallback metin kullanıcıya gösterilir.
+_MISSING_CONTENT_MARKER = "İkinci siteye ait içerik bulunamadı."
+
+_PROSPECTUS_UNAVAILABLE = (
+    "Bu ilaca ait detaylı prospektüs bilgisi şu an sistemimizde güncellenmektedir. "
+    "En doğru bilgi için lütfen doktorunuza veya eczacınıza danışınız."
+)
+
 
 @dataclass
 class MedicationSummary:
@@ -832,6 +842,37 @@ def summarize_medication(
     if key in _summary_cache:
         logger.debug(f"Önbellekten servis: {product_name}")
         return _summary_cache[key]
+
+    # ── Eksik İçerik Kontrolü ─────────────────────────────────────────────────
+    # description 'İkinci siteye ait içerik bulunamadı.' ifadesini içeriyorsa
+    # ham metni işlemeye gerek yoktur; kullanıcıya doğrudan profesyonel
+    # yönlendirme mesajı döndürülür.
+    if _MISSING_CONTENT_MARKER in (description or ""):
+        logger.info(f"Eksik prospektüs içeriği tespit edildi: {product_name}")
+        _missing_result = MedicationSummary(
+            product_name=product_name,
+            active_ingredient=active_ingredient,
+            atc_code=atc_code,
+            category=category,
+            indication="Bilgi mevcut değil.",
+            side_effects="Bilgi mevcut değil.",
+            dosage="Bilgi mevcut değil.",
+            warnings="Bilgi mevcut değil.",
+            dosage_entities=[],
+            critical_side_effects=[],
+            summary_method="rule_based",
+            disclaimer=DISCLAIMER_SHORT,
+            temel_faydasi=[_PROSPECTUS_UNAVAILABLE],
+            kullanim_sekli=[_PROSPECTUS_UNAVAILABLE],
+            dikkat_edilecekler=[
+                "Herhangi bir yan etki fark ederseniz kullanmayı bırakın ve "
+                "doktorunuza danışın."
+            ],
+        )
+        if len(_summary_cache) >= _CACHE_MAX:
+            del _summary_cache[next(iter(_summary_cache))]
+        _summary_cache[key] = _missing_result
+        return _missing_result
 
     # ── 1. Metin Temizleme
     clean = _clean_text(description or "")
