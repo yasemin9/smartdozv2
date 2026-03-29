@@ -19,8 +19,12 @@ class PreferencesScreen extends StatefulWidget {
 class _PreferencesScreenState extends State<PreferencesScreen> {
   bool _loading = true;
   bool _saving = false;
-  TimeOfDay _wakeTime  = const TimeOfDay(hour: 8,  minute: 0);
-  TimeOfDay _sleepTime = const TimeOfDay(hour: 22, minute: 0);
+  TimeOfDay _wakeTime      = const TimeOfDay(hour: 8,  minute: 0);
+  TimeOfDay _sleepTime     = const TimeOfDay(hour: 22, minute: 0);
+  TimeOfDay? _breakfastTime;
+  TimeOfDay? _lunchTime;
+  TimeOfDay? _dinnerTime;
+  TimeOfDay? _bedtime;
 
   @override
   void initState() {
@@ -33,9 +37,13 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
       final pref = await context.read<ApiService>().getPreferences();
       if (mounted) {
         setState(() {
-          _wakeTime  = _parseTime(pref.wakeTime);
-          _sleepTime = _parseTime(pref.sleepTime);
-          _loading   = false;
+          _wakeTime      = _parseTime(pref.wakeTime);
+          _sleepTime     = _parseTime(pref.sleepTime);
+          _breakfastTime = pref.breakfastTime != null ? _parseTime(pref.breakfastTime!) : null;
+          _lunchTime     = pref.lunchTime     != null ? _parseTime(pref.lunchTime!)     : null;
+          _dinnerTime    = pref.dinnerTime    != null ? _parseTime(pref.dinnerTime!)    : null;
+          _bedtime       = pref.bedtime       != null ? _parseTime(pref.bedtime!)       : null;
+          _loading       = false;
         });
       }
     } catch (_) {
@@ -54,11 +62,38 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
   String _timeToString(TimeOfDay t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:00';
 
-  Future<void> _pickTime(bool isWake) async {
+  String? _optionalTimeToString(TimeOfDay? t) =>
+      t == null ? null : _timeToString(t);
+
+  Future<void> _pickTime(String field) async {
+    TimeOfDay initial;
+    String helpText;
+    switch (field) {
+      case 'wake':
+        initial  = _wakeTime;
+        helpText = 'Uyanma Saati';
+      case 'sleep':
+        initial  = _sleepTime;
+        helpText = 'Uyku Saati';
+      case 'breakfast':
+        initial  = _breakfastTime ?? const TimeOfDay(hour: 8, minute: 0);
+        helpText = 'Kahvaltı Saati';
+      case 'lunch':
+        initial  = _lunchTime ?? const TimeOfDay(hour: 13, minute: 0);
+        helpText = 'Öğle Yemeği Saati';
+      case 'dinner':
+        initial  = _dinnerTime ?? const TimeOfDay(hour: 19, minute: 0);
+        helpText = 'Akşam Yemeği Saati';
+      case 'bedtime':
+        initial  = _bedtime ?? const TimeOfDay(hour: 22, minute: 0);
+        helpText = 'Yatış Saati';
+      default:
+        return;
+    }
     final picked = await showTimePicker(
       context: context,
-      initialTime: isWake ? _wakeTime : _sleepTime,
-      helpText: isWake ? 'Uyanma Saati' : 'Uyku Saati',
+      initialTime: initial,
+      helpText: helpText,
       builder: (ctx, child) => MediaQuery(
         data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
         child: child!,
@@ -66,8 +101,14 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     );
     if (picked == null || !mounted) return;
     setState(() {
-      if (isWake) _wakeTime = picked;
-      else _sleepTime = picked;
+      switch (field) {
+        case 'wake':      _wakeTime      = picked;
+        case 'sleep':     _sleepTime     = picked;
+        case 'breakfast': _breakfastTime = picked;
+        case 'lunch':     _lunchTime     = picked;
+        case 'dinner':    _dinnerTime    = picked;
+        case 'bedtime':   _bedtime       = picked;
+      }
     });
   }
 
@@ -87,8 +128,12 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     setState(() => _saving = true);
     try {
       final pref = UserPreference(
-        wakeTime:  _timeToString(_wakeTime),
-        sleepTime: _timeToString(_sleepTime),
+        wakeTime:      _timeToString(_wakeTime),
+        sleepTime:     _timeToString(_sleepTime),
+        breakfastTime: _optionalTimeToString(_breakfastTime),
+        lunchTime:     _optionalTimeToString(_lunchTime),
+        dinnerTime:    _optionalTimeToString(_dinnerTime),
+        bedtime:       _optionalTimeToString(_bedtime),
       );
       await context.read<ApiService>().updatePreferences(pref);
       _showSnack('Tercihler kaydedildi. İlaç zamanları yeniden hesaplanacak.');
@@ -137,7 +182,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                   _InfoCard(),
                   const SizedBox(height: 16),
 
-                  // ── Saat seçiciler
+                  // ── Uyku / Uyanma saatleri
                   _SectionTitle(title: 'Günlük Program'),
                   const SizedBox(height: 16),
                   _TimePicker(
@@ -145,7 +190,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                     icon: Icons.wb_sunny_rounded,
                     iconColor: const Color(0xFFF9A825),
                     time: _wakeTime,
-                    onTap: () => _pickTime(true),
+                    onTap: () => _pickTime('wake'),
                   ),
                   const SizedBox(height: 16),
                   _TimePicker(
@@ -153,9 +198,75 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                     icon: Icons.bedtime_rounded,
                     iconColor: const Color(0xFF1565C0),
                     time: _sleepTime,
-                    onTap: () => _pickTime(false),
+                    onTap: () => _pickTime('sleep'),
                   ),
+                  const SizedBox(height: 24),
 
+                  // ── Günlük Rutin Saatler
+                  _SectionTitle(title: 'Günlük Rutin (İlaç Saatleri İçin)'),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF8E1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFFCC02), width: 1),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFFF57F17)),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            '"Yemekten önce/sonra", "Sabah", "Yatmadan önce" gibi seçenekler '
+                            'bu saatler kullanılarak hesaplanır. Tanımlamadığınız saatler için '
+                            'sistem varsayılan değerlere döner.',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF795548), height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _OptionalTimePicker(
+                    label: 'Kahvaltı Saati',
+                    icon: Icons.free_breakfast_rounded,
+                    iconColor: const Color(0xFFFF8F00),
+                    time: _breakfastTime,
+                    placeholder: 'Tanımlanmadı (varsayılan: 08:00)',
+                    onTap: () => _pickTime('breakfast'),
+                    onClear: () => setState(() => _breakfastTime = null),
+                  ),
+                  const SizedBox(height: 12),
+                  _OptionalTimePicker(
+                    label: 'Öğle Yemeği Saati',
+                    icon: Icons.lunch_dining_rounded,
+                    iconColor: const Color(0xFF43A047),
+                    time: _lunchTime,
+                    placeholder: 'Tanımlanmadı (varsayılan: 13:00)',
+                    onTap: () => _pickTime('lunch'),
+                    onClear: () => setState(() => _lunchTime = null),
+                  ),
+                  const SizedBox(height: 12),
+                  _OptionalTimePicker(
+                    label: 'Akşam Yemeği Saati',
+                    icon: Icons.dinner_dining_rounded,
+                    iconColor: const Color(0xFFE53935),
+                    time: _dinnerTime,
+                    placeholder: 'Tanımlanmadı (varsayılan: 19:00)',
+                    onTap: () => _pickTime('dinner'),
+                    onClear: () => setState(() => _dinnerTime = null),
+                  ),
+                  const SizedBox(height: 12),
+                  _OptionalTimePicker(
+                    label: 'Yatış Saati',
+                    icon: Icons.hotel_rounded,
+                    iconColor: const Color(0xFF5E35B1),
+                    time: _bedtime,
+                    placeholder: 'Tanımlanmadı (varsayılan: 22:00)',
+                    onTap: () => _pickTime('bedtime'),
+                    onClear: () => setState(() => _bedtime = null),
+                  ),
                   const SizedBox(height: 16),
 
                   // ── Önizleme
@@ -299,6 +410,103 @@ class _TimePicker extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+            ],
+          ),
+        ),
+      );
+}
+
+// ────────────────────────────────────────────────────
+// Opsiyonel Saat Seçici (Rutin Saatler)
+// ────────────────────────────────────────────────────
+class _OptionalTimePicker extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color iconColor;
+  final TimeOfDay? time;
+  final String placeholder;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
+
+  const _OptionalTimePicker({
+    required this.label,
+    required this.icon,
+    required this.iconColor,
+    required this.time,
+    required this.placeholder,
+    required this.onTap,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+            border: Border.all(
+              color: time != null
+                  ? iconColor.withOpacity(0.4)
+                  : Colors.grey.shade200,
+              width: time != null ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: iconColor.withOpacity(0.12),
+                child: Icon(icon, color: iconColor, size: 18),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF546E7A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      time != null
+                          ? '${time!.hour.toString().padLeft(2, '0')}:${time!.minute.toString().padLeft(2, '0')}'
+                          : placeholder,
+                      style: TextStyle(
+                        fontSize: time != null ? 20 : 12,
+                        fontWeight: time != null ? FontWeight.w800 : FontWeight.normal,
+                        color: time != null ? iconColor : Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (time != null)
+                IconButton(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  color: Colors.grey,
+                  tooltip: 'Temizle',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                )
+              else
+                Icon(Icons.add_circle_outline_rounded, color: iconColor.withOpacity(0.6), size: 20),
             ],
           ),
         ),

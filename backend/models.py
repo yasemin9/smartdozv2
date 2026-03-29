@@ -81,6 +81,13 @@ class UserPreference(Base):
     """
     Kullanıcı hatırlatıcı tercihleri.
     ZAMANDILIMIHESAPLA algoritması bu tercihlerle çalışır (EK1_revize.pdf s.37).
+
+    Rutin saatler:
+        breakfast_time  — Kahvaltı saati  ('Sabah' / 'Yemekten önce/sonra' için temel)
+        lunch_time      — Öğle yemeği     ('Öğle' / 'Yemekten önce/sonra' için temel)
+        dinner_time     — Akşam yemeği    ('Akşam' / 'Yemekten önce/sonra' için temel)
+        bedtime         — Yatış saati     ('Yatmadan önce' için temel)
+    None ise kullanıcı henüz rutini tanımlamamış demektir.
     """
     __tablename__ = "user_preferences"
 
@@ -92,6 +99,12 @@ class UserPreference(Base):
     # Uyanma ve uyku saatleri — algoritma parametreleri
     wake_time: Mapped[time] = mapped_column(Time, nullable=False, default=time(8, 0))
     sleep_time: Mapped[time] = mapped_column(Time, nullable=False, default=time(22, 0))
+
+    # Günlük rutin saatler — yemek bağlantılı dozlar için
+    breakfast_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True, default=None)
+    lunch_time:     Mapped[Optional[time]] = mapped_column(Time, nullable=True, default=None)
+    dinner_time:    Mapped[Optional[time]] = mapped_column(Time, nullable=True, default=None)
+    bedtime:        Mapped[Optional[time]] = mapped_column(Time, nullable=True, default=None)
 
     user: Mapped["User"] = relationship("User", back_populates="preference")
 

@@ -1325,6 +1325,7 @@ class _DoseContentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(left: 8, top: 6, bottom: 6),
+      clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
         color: _cardBg,
         borderRadius: BorderRadius.circular(16),

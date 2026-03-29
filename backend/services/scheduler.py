@@ -121,6 +121,115 @@ def parse_interval_hours(usage_frequency: str) -> int | None:
     return None
 
 
+# ──────────────────────────────────────────────────────────
+# Rutin → Saat Çözümleyici  (Modül 2 — Kişiye Özel Hatırlatıcı)
+# ──────────────────────────────────────────────────────────
+
+# Rutin bağımlı kullanım zamanları ve offset'leri (dakika)
+_ROUTINE_MAP: dict[str, tuple[str, int]] = {
+    # usage_time metni        → (pref alanı       , offset_dk)
+    "sabah":                   ("breakfast_time",   0),
+    "kahvaltıdan önce":        ("breakfast_time", -30),
+    "kahvaltıdan sonra":       ("breakfast_time",  30),
+    "öğle":                    ("lunch_time",       0),
+    "öğleden önce":            ("lunch_time",      -30),
+    "öğleden sonra":           ("lunch_time",       30),
+    "akşam":                   ("dinner_time",      0),
+    "akşam yemeğinden önce":   ("dinner_time",     -30),
+    "akşam yemeğinden sonra":  ("dinner_time",      30),
+    "yemekten önce":           ("dinner_time",     -30),   # genel → akşam yemeğine bağla
+    "yemekten sonra":          ("dinner_time",      30),   # genel → akşam yemeğine bağla
+    "yatmadan önce":           ("bedtime",         -15),
+    "aç karnına":              ("breakfast_time",  -30),
+}
+
+# Varsayılan saat: rutin tanımlanmamış ise kullanılan saatler
+_ROUTINE_DEFAULTS: dict[str, time] = {
+    "breakfast_time": time(8, 0),
+    "lunch_time":     time(13, 0),
+    "dinner_time":    time(19, 0),
+    "bedtime":        time(22, 0),
+}
+
+
+def resolve_usage_time_from_routine(
+    usage_time: str,
+    pref,                    # UserPreference ORM nesnesi veya None
+    target_date: date,
+) -> datetime | None:
+    """
+    Kategorik kullanım zamanını (örn. 'Sabah', 'Yemekten sonra') kullanıcının
+    profil rutinine göre gerçek bir datetime'a çevirir.
+
+    Rutin açık ise → rutin_saati + offset
+    Rutin None ise  → ROUTINE_DEFAULTS saati + offset (güvenli varsayılan)
+    Aralıklı sıklık veya tanımsız format → None (çağıran zamandilimihesapla kullanır)
+    """
+    key = usage_time.strip().lower()
+    if key not in _ROUTINE_MAP:
+        return None
+
+    pref_field, offset_min = _ROUTINE_MAP[key]
+    # Kullanıcı bu rutini tanımlamış mı?
+    routine_time: time | None = getattr(pref, pref_field, None) if pref else None
+    if routine_time is None:
+        routine_time = _ROUTINE_DEFAULTS[pref_field]
+        logger.debug(
+            f"[resolve] '{usage_time}' için rutin bulunamadı, "
+            f"varsayılan {routine_time} kullanılıyor."
+        )
+
+    base_dt = datetime.combine(target_date, routine_time)
+    result_dt = base_dt + timedelta(minutes=offset_min)
+    return result_dt
+
+
+def _parse_hhmm(s: str) -> time | None:
+    """'HH:MM' metnini time nesnesine çevirir; hatalı formatta None döner."""
+    try:
+        h, m = map(int, s.strip().split(":"))
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return time(h, m)
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def parse_multislot_usage_time(
+    usage_time: str,
+    target_date: date,
+    pref,
+) -> list[datetime] | None:
+    """
+    Flutter'dan gelen çok-doz zaman formatını ayrıştırır:
+        'Sabah|09:00;Akşam|20:00'
+        'Öğle|13:00|Yemekten sonra;Akşam|19:30'
+
+    Her slot için kullanıcının seçtiği HH:MM saatini kullanır.
+    HH:MM geçersizse rutin tabanlı çözümlemeye düşer.
+
+    Eğer format tanınmazsa None döner (eski tek-etiket akışına geçilir).
+    """
+    if ";" not in usage_time and "|" not in usage_time:
+        return None   # Eski format
+
+    result: list[datetime] = []
+    for part in usage_time.split(";"):
+        tokens = [t.strip() for t in part.split("|")]
+        if len(tokens) < 2:
+            continue
+        t = _parse_hhmm(tokens[1])
+        if t is None:
+            # HH:MM geçersizse rutin tabanlı hesapla
+            routine_dt = resolve_usage_time_from_routine(tokens[0], pref, target_date)
+            if routine_dt:
+                result.append(routine_dt)
+        else:
+            result.append(datetime.combine(target_date, t))
+
+    return result if result else None
+
+
 def calculate_interval_doses(
     first_dose_str: str,
     interval_hours: int,
@@ -166,16 +275,18 @@ async def generate_schedule_for_medication_on_date(
 ) -> List[datetime]:
     """Tek bir ilacın belirli gün doz saatlerini üretir.
 
-    Sıklık aralık tabanlıysa (Her 8/12 saatte bir): ilk doz saatinden
-    başlayarak matematiksel aralık hesaplaması yapılır.
-    Diğer durumlarda: ZAMANDILIMIHESAPLA algoritması kullanılır.
+    Öncelik sırası:
+    1. Aralık tabanlı sıklık (Her 8/12 saatte bir): matematiksel hesaplama
+    2. Çok-doz slot formatı ('Sabah|09:00;Akşam|20:00'): doğrudan saatler
+    3. Tek etiket ('Sabah'): rutin tabanlı çözümleme
+    4. Fallback: ZAMANDILIMIHESAPLA
     """
     # ── Aralık tabanlı sıklık — Algoritma 1 Uzantısı
     interval_hours = parse_interval_hours(med.usage_frequency)
     if interval_hours is not None:
         return calculate_interval_doses(med.usage_time, interval_hours, target_date)
 
-    # ── Kategorik sıklık — ZAMANDILIMIHESAPLA
+    # ── Ortak: kullanıcı tercihlerini yükle
     from datetime import time as time_type
     from models import UserPreference
     from sqlalchemy import select
@@ -184,7 +295,19 @@ async def generate_schedule_for_medication_on_date(
         select(UserPreference).where(UserPreference.user_id == med.user_id)
     )
     pref = pref_res.scalar_one_or_none()
-    wake_t = pref.wake_time if pref else time_type(8, 0)
+
+    # ── Çok-doz slot formatı ('Sabah|09:00;Akşam|20:00')
+    multislot = parse_multislot_usage_time(med.usage_time, target_date, pref)
+    if multislot is not None:
+        return sorted(multislot)
+
+    # ── Tek etiket: rutin tabanlı çözümleme
+    routine_dt = resolve_usage_time_from_routine(med.usage_time, pref, target_date)
+    if routine_dt is not None:
+        return [routine_dt]
+
+    # Rutin eşleşmesi yoksa → ZAMANDILIMIHESAPLA
+    wake_t  = pref.wake_time  if pref else time_type(8, 0)
     sleep_t = pref.sleep_time if pref else time_type(22, 0)
 
     freq = parse_frequency(med.usage_frequency)

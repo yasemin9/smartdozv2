@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 
 import '../models/global_medication.dart';
 import '../models/medication.dart';
+import '../models/user_preference.dart';
+import '../screens/preferences_screen.dart';
 import '../services/api_service.dart';
 
 /// Dozaj formu seçenekleri (EK1_revize.pdf Modül 1)
@@ -61,6 +63,84 @@ int? _extractIntervalHours(String freq) {
   return (h != null && h > 0 && 24 % h == 0) ? h : null;
 }
 
+/// Sıklıktan kaç doz gerektiğini çıkarır (kategorik mod için)
+int _doseCountFromFrequency(String? freq) {
+  if (freq == null) return 1;
+  if (freq.contains('Günde 2')) return 2;
+  if (freq.contains('Günde 3')) return 3;
+  if (freq.contains('Haftada') || freq.contains('Gerektiğinde')) return 1;
+  return 1;
+}
+
+/// Her etiket için varsayılan saat ve anlam dilimi kısıtları
+const Map<String, ({TimeOfDay defaultTime, int minHour, int maxHour, String? note})>
+    kLabelPresets = {
+  'Sabah':          (defaultTime: TimeOfDay(hour: 9,  minute: 0), minHour: 5,  maxHour: 12, note: null),
+  'Öğle':           (defaultTime: TimeOfDay(hour: 13, minute: 0), minHour: 11, maxHour: 15, note: null),
+  'Akşam':          (defaultTime: TimeOfDay(hour: 20, minute: 0), minHour: 17, maxHour: 23, note: null),
+  'Yatmadan önce':  (defaultTime: TimeOfDay(hour: 22, minute: 0), minHour: 20, maxHour: 24, note: null),
+  'Yemekten önce':  (defaultTime: TimeOfDay(hour: 12, minute: 30), minHour: 5, maxHour: 24, note: 'Yemekten önce'),
+  'Yemekten sonra': (defaultTime: TimeOfDay(hour: 13, minute: 0),  minHour: 5, maxHour: 24, note: 'Yemekten sonra'),
+  'Aç karnına':     (defaultTime: TimeOfDay(hour: 8,  minute: 0),  minHour: 5, maxHour: 11, note: 'Aç karnına'),
+};
+
+/// Önerilen çiftli / üçlü kombinasyonlar (Kullanıcıya hızlı seçim için)
+const Map<int, List<List<String>>> kSuggestedCombos = {
+  2: [
+    ['Sabah', 'Akşam'],
+    ['Sabah', 'Yatmadan önce'],
+    ['Öğle', 'Akşam'],
+  ],
+  3: [
+    ['Sabah', 'Öğle', 'Akşam'],
+    ['Sabah', 'Öğle', 'Yatmadan önce'],
+  ],
+};
+
+/// Seçilen kullanım zamanının hangi profil rutinine bağlı olduğunu döner.
+String? _requiredRoutineField(String usageTime) {
+  const map = {
+    'Sabah':              'breakfastTime',
+    'Aç karnına':         'breakfastTime',
+    'Öğle':               'lunchTime',
+    'Akşam':              'dinnerTime',
+    'Yemekten önce':      'dinnerTime',
+    'Yemekten sonra':     'dinnerTime',
+    'Yatmadan önce':      'bedtime',
+  };
+  return map[usageTime];
+}
+
+/// Tek bir doz slotu — label + kullanıcının üzerine yazdığı saat
+class _DoseSlot {
+  String label;          // 'Sabah', 'Öğle', vb.
+  TimeOfDay? overrideTime; // null → preset varsayılanı kullan
+
+  _DoseSlot(this.label, [this.overrideTime]);
+
+  TimeOfDay get effectiveTime =>
+      overrideTime ?? kLabelPresets[label]?.defaultTime ?? const TimeOfDay(hour: 8, minute: 0);
+
+  /// Geçerli saatin anlam dilimi içinde olup olmadığını kontrol eder
+  bool get isSemanticValid {
+    final preset = kLabelPresets[label];
+    if (preset == null) return true;
+    final h = effectiveTime.hour;
+    // maxHour 24 olabilir (“yatmadan önce” gece yarısı dahil)
+    return h >= preset.minHour && (preset.maxHour == 24 || h < preset.maxHour);
+  }
+
+  String get note => kLabelPresets[label]?.note ?? '';
+
+  /// DB'ye yazılacak string: 'Sabah|09:00' veya 'Yemekten sonra|13:00|Yemekten sonra'
+  String toStorageString() {
+    final hh = effectiveTime.hour.toString().padLeft(2, '0');
+    final mm = effectiveTime.minute.toString().padLeft(2, '0');
+    final n = note.isNotEmpty ? '|$note' : '';
+    return '$label|$hh:$mm$n';
+  }
+}
+
 class AddMedicationScreen extends StatefulWidget {
   const AddMedicationScreen({super.key, this.prefillName});
 
@@ -91,12 +171,18 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
   String? _selectedDosageForm;
   String? _selectedFrequency;
-  String? _selectedUsageTime;   // Kategorik: 'Sabah' vb. | Aralıklı: 'HH:MM'
-  TimeOfDay? _firstDoseTime;   // Sadece aralıklı sıklıklar için
+  // Kategorik dozlar: sıklığa göre kaç doz gerekiyorsa o kadar slot
+  List<_DoseSlot> _doseSlots = [];
+  // Aralıklı sıklık (Her 8/12 saatte bir) için ilk doz saati
+  TimeOfDay? _firstDoseTime;
+  String? _firstDoseTimeStr; // DB'ye yazılacak HH:MM
   DateTime? _expiryDate;
   bool _isLoading = false;
   List<InteractionWarning> _interactionWarnings = const [];
   Medication? _pendingMedication;
+
+  // Modül 2: Kullanıcının kayıtlı rutin saatleri
+  UserPreference? _userPref;
 
   @override
   void initState() {
@@ -105,6 +191,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     if (widget.prefillName != null && widget.prefillName!.isNotEmpty) {
       _nameController.text = widget.prefillName!;
     }
+    // Modül 2: Kullanıcının rutin saatlerini yükle
+    _loadUserPreferences();
     // Sonsuz kaydırma: listenin altına yakınılacakta daha fazla yükle
     _suggScrollCtrl.addListener(() {
       final pos = _suggScrollCtrl.position;
@@ -131,6 +219,17 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     _suggScrollCtrl.dispose();
     _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  // ── Kullanıcı Tercih Yükleme ──────────────────────────
+
+  Future<void> _loadUserPreferences() async {
+    try {
+      final pref = await context.read<ApiService>().getPreferences();
+      if (mounted) setState(() => _userPref = pref);
+    } catch (_) {
+      // Tercihler yüklenemezse sessizce devam et; rutin kontrol uyarısı gösterilir
+    }
   }
 
   // ── TypeAhead logic ──────────────────────────────────
@@ -217,19 +316,39 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       _showError('Lütfen ilk doz saatini seçin.');
       return;
     }
-    if (!_isIntervalBased(_selectedFrequency) && _selectedUsageTime == null) {
-      _showError('Lütfen kullanım zamanını seçin.');
-      return;
+    if (!_isIntervalBased(_selectedFrequency)) {
+      final needed = _doseCountFromFrequency(_selectedFrequency);
+      if (_doseSlots.length < needed) {
+        _showError('Lütfen $needed doz zamanı seçin.');
+        return;
+      }
+      // Anlamsal saat kontrolü
+      for (final slot in _doseSlots) {
+        if (!slot.isSemanticValid) {
+          final preset = kLabelPresets[slot.label]!;
+          _showError(
+            '"${slot.label}" için seçilen saat geçersiz. '
+            '${preset.minHour}:00 – ${preset.maxHour == 24 ? "23:59" : "${preset.maxHour}:00"} '
+            'aralığında olmalıdır.',
+          );
+          return;
+        }
+      }
     }
 
     setState(() => _isLoading = true);
+
+    // Kayıt için usage_time string'ini oluştur
+    final usageTimeStr = _isIntervalBased(_selectedFrequency)
+        ? _firstDoseTimeStr!
+        : _doseSlots.map((s) => s.toStorageString()).join(';');
 
     try {
       final medication = Medication(
         name: _nameController.text.trim(),
         dosageForm: _selectedDosageForm!,
         usageFrequency: _selectedFrequency!,
-        usageTime: _selectedUsageTime!,
+        usageTime: usageTimeStr,
         expiryDate: _expiryDate!,
         activeIngredient: _selectedGlobalMed?.activeIngredient,
         atcCode: _selectedGlobalMed?.atcCode,
@@ -448,8 +567,12 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                             _selectedFrequency = v;
                             // Sıklık türü değiştiğinde zaman seçimini sıfırla
                             if (wasInterval != willBeInterval) {
-                              _selectedUsageTime = null;
+                              _doseSlots = [];
                               _firstDoseTime = null;
+                              _firstDoseTimeStr = null;
+                            } else if (!willBeInterval) {
+                              // Kategorik kaldı ama doz sayısı değişti ise sıfırla
+                              _doseSlots = [];
                             }
                           });
                         },
@@ -461,17 +584,21 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       // ── Kullanım Zamanı / İlk Doz Saati (bağımlı alan)
                       if (_isIntervalBased(_selectedFrequency))
                         _buildFirstDoseTimePicker()
-                      else
-                        _buildDropdown<String>(
-                          label: 'Kullanım Zamanı',
-                          hint: 'Seçin',
-                          icon: Icons.access_time_rounded,
-                          value: _selectedUsageTime,
-                          items: kUsageTimes,
-                          onChanged: (v) =>
-                              setState(() => _selectedUsageTime = v),
-                          validator: (v) =>
-                              v == null ? 'Kullanım zamanı seçiniz.' : null,
+                      else if (_selectedFrequency != null &&
+                          _selectedFrequency != 'Haftada 1 kez' &&
+                          _selectedFrequency != 'Gerektiğinde')
+                        _DoseSlotEditor(
+                          frequency: _selectedFrequency!,
+                          slots: _doseSlots,
+                          userPref: _userPref,
+                          onSlotsChanged: (slots) => setState(() => _doseSlots = slots),
+                          onNavigateToPrefs: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const PreferencesScreen()),
+                            );
+                            await _loadUserPreferences();
+                          },
                         ),
                       const SizedBox(height: 24),
 
@@ -582,8 +709,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       );
 
   /// Saatlik aralıklı sıklık için İlk Doz Saati seçici widget'ı.
-  Widget _buildFirstDoseTimePicker() {
-    final colorScheme = Theme.of(context).colorScheme;
+  Widget _buildFirstDoseTimePicker() {    final colorScheme = Theme.of(context).colorScheme;
     final intervalHours = _extractIntervalHours(_selectedFrequency ?? '');
     final doseCount = intervalHours != null ? 24 ~/ intervalHours : 0;
 
@@ -614,7 +740,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           final mm = picked.minute.toString().padLeft(2, '0');
           setState(() {
             _firstDoseTime = picked;
-            _selectedUsageTime = '$hh:$mm'; // DB'ye HH:MM olarak kaydedilir
+            _firstDoseTimeStr = '$hh:$mm'; // DB'ye HH:MM olarak kaydedilir
           });
         }
       },
@@ -658,7 +784,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                   Text(
                     _firstDoseTime == null
                         ? 'Saat seçmek için dokunun'
-                        : _selectedUsageTime!,
+                        : _firstDoseTimeStr!,
                     style: TextStyle(
                       fontSize: 15,
                       color: _firstDoseTime == null
@@ -741,6 +867,356 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         filled: true,
         fillColor: Colors.grey.shade50,
       );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// _DoseSlotEditor — Doz Sayısına Göre Zaman Seçim Alanları
+// ──────────────────────────────────────────────────────────────────────────────
+
+class _DoseSlotEditor extends StatefulWidget {
+  const _DoseSlotEditor({
+    required this.frequency,
+    required this.slots,
+    required this.userPref,
+    required this.onSlotsChanged,
+    required this.onNavigateToPrefs,
+  });
+
+  final String frequency;
+  final List<_DoseSlot> slots;
+  final UserPreference? userPref;
+  final ValueChanged<List<_DoseSlot>> onSlotsChanged;
+  final VoidCallback onNavigateToPrefs;
+
+  @override
+  State<_DoseSlotEditor> createState() => _DoseSlotEditorState();
+}
+
+class _DoseSlotEditorState extends State<_DoseSlotEditor> {
+  late List<_DoseSlot> _slots;
+  int get _needed => _doseCountFromFrequency(widget.frequency);
+
+  @override
+  void initState() {
+    super.initState();
+    _slots = List.of(widget.slots);
+  }
+
+  @override
+  void didUpdateWidget(_DoseSlotEditor old) {
+    super.didUpdateWidget(old);
+    if (old.frequency != widget.frequency) {
+      _slots = [];
+      // Build aşamasında üst widget'ın setState'ini tetiklemekten kaçın
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onSlotsChanged([]);
+      });
+    }
+  }
+
+  void _notify() => widget.onSlotsChanged(List.of(_slots));
+
+  Future<void> _pickSlot(int index) async {
+    final slot = _slots[index];
+    final preset = kLabelPresets[slot.label];
+
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: slot.effectiveTime,
+      helpText: '${slot.label} Saatini Seçin',
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    // Anlamsal kontrol
+    if (preset != null) {
+      final h = picked.hour;
+      final valid = h >= preset.minHour && (preset.maxHour == 24 || h < preset.maxHour);
+      if (!valid) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '"${slot.label}" için geçersiz saat. '
+              '${preset.minHour}:00 – ${preset.maxHour == 24 ? "23:59" : "${preset.maxHour}:00"} '
+              'aralığında olmalıdır.',
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+    }
+
+    setState(() => _slots[index].overrideTime = picked);
+    _notify();
+  }
+
+  Future<void> _selectLabel(int index, String label) async {
+    // Rutin kontrol
+    final requiredField = _requiredRoutineField(label);
+    if (requiredField != null) {
+      final pref = widget.userPref;
+      final fieldValue = pref == null
+          ? null
+          : switch (requiredField) {
+              'breakfastTime' => pref.breakfastTime,
+              'lunchTime'     => pref.lunchTime,
+              'dinnerTime'    => pref.dinnerTime,
+              'bedtime'       => pref.bedtime,
+              _               => null,
+            };
+      if (fieldValue == null && mounted) {
+        final fieldLabel = switch (requiredField) {
+          'breakfastTime' => 'Kahvaltı Saati',
+          'lunchTime'     => 'Öğle Yemeği Saati',
+          'dinnerTime'    => 'Akşam Yemeği Saati',
+          'bedtime'       => 'Yatış Saati',
+          _               => 'Rutin Saat',
+        };
+        final go = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.schedule_rounded, color: Color(0xFFFF8F00), size: 36),
+            title: const Text('Rutin Saat Tanımlanmamış'),
+            content: Text(
+              '"$label" için $fieldLabel profil ayarlarında tanımlanmamış.\n\n'
+              'Profil ayarlarına giderek tanımlayabilir ya da varsayılan saat kullanılır.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Varsayılanla Devam Et'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Profil Ayarlarına Git'),
+              ),
+            ],
+          ),
+        );
+        if (go == true && mounted) {
+          widget.onNavigateToPrefs();
+          return;
+        }
+      }
+    }
+    setState(() => _slots[index] = _DoseSlot(label));
+    _notify();
+  }
+
+  void _applyCombo(List<String> combo) {
+    setState(() {
+      _slots = combo.map((l) => _DoseSlot(l)).toList();
+    });
+    _notify();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final combos = kSuggestedCombos[_needed];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Başlık
+        Text(
+          'Doz Zamanları ($_needed doz seçilecek)',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: colorScheme.primary,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // ── Hızlı kombinasyon önerileri
+        if (combos != null && _needed > 1) ...[
+          Text(
+            'Hızlı seçim:',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            children: combos.map((combo) {
+              final label = combo.join(' + ');
+              return ActionChip(
+                label: Text(label, style: const TextStyle(fontSize: 12)),
+                avatar: const Icon(Icons.auto_awesome_rounded, size: 14),
+                onPressed: () => _applyCombo(combo),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Doz slot'ları
+        ...List.generate(_needed, (i) {
+          final hasSlot = i < _slots.length;
+          final slot = hasSlot ? _slots[i] : null;
+          final doseLabel = _needed == 1 ? 'Doz' : '${i + 1}. Doz';
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  doseLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF546E7A),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    // Etiket seçimi
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: slot?.label,
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.label_outline_rounded),
+                          labelText: 'Zaman Etiketi',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: slot != null && !slot.isSemanticValid
+                                  ? Colors.red
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey.shade50,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        hint: const Text('Seçin', style: TextStyle(fontSize: 13)),
+                        items: kUsageTimes
+                            // Aynı etiket iki kez seçilemesin
+                            .where((t) => t == slot?.label || !_slots.any((s) => s.label == t))
+                            .map((t) => DropdownMenuItem(
+                                  value: t,
+                                  child: Text(t, style: const TextStyle(fontSize: 13)),
+                                ))
+                            .toList(),
+                        onChanged: (v) {
+                          if (v == null) return;
+                          if (i < _slots.length) {
+                            _selectLabel(i, v);
+                          } else {
+                            // Yeni slot ekle
+                            setState(() => _slots.add(_DoseSlot(v)));
+                            _notify();
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    // Saat seçimi / değiştirme düğmesi
+                    if (slot != null)
+                      InkWell(
+                        onTap: () => _pickSlot(i),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: slot.isSemanticValid
+                                ? colorScheme.primaryContainer
+                                : Colors.red.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: slot.isSemanticValid
+                                  ? colorScheme.primary.withAlpha(120)
+                                  : Colors.red,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${slot.effectiveTime.hour.toString().padLeft(2, '0')}:'
+                                '${slot.effectiveTime.minute.toString().padLeft(2, '0')}',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: slot.isSemanticValid
+                                      ? colorScheme.onPrimaryContainer
+                                      : Colors.red.shade700,
+                                ),
+                              ),
+                              if (slot.overrideTime != null)
+                                Text(
+                                  'özelleştirildi',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: colorScheme.primary,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                // Not etiketi (Yemekten sonra, Aç karnına, vb.)
+                if (slot?.note.isNotEmpty ?? false) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 13, color: colorScheme.secondary),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Not: ${slot!.note}',
+                        style: TextStyle(fontSize: 11, color: colorScheme.secondary),
+                      ),
+                    ],
+                  ),
+                ],
+                // Anlam dışı saat uyarısı
+                if (slot != null && !slot.isSemanticValid) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, size: 13, color: Colors.red),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '"${slot.label}" için seçilen saat '
+                          '${slot.effectiveTime.hour.toString().padLeft(2, '0')}:${slot.effectiveTime.minute.toString().padLeft(2, '0')} '
+                          'mantıksal aralık dışında kalıyor.',
+                          style: const TextStyle(fontSize: 11, color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          );
+        }),
+
+        // Genel ilerleme göstergesi
+        if (_slots.length < _needed)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '${_slots.length}/$_needed doz zamanı seçildi',
+              style: TextStyle(fontSize: 11, color: Colors.orange.shade700),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

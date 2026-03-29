@@ -164,9 +164,13 @@ class MedicationResponse(BaseModel):
 # ──────────────────────────────────────────────────────
 
 class UserPreferenceUpdate(BaseModel):
-    """Uyanma / uyuma saati güncelleme isteği."""
+    """Uyanma / uyuma saati ve günlük rutin güncelleme isteği."""
     wake_time: time
     sleep_time: time
+    breakfast_time: Optional[time] = None
+    lunch_time:     Optional[time] = None
+    dinner_time:    Optional[time] = None
+    bedtime:        Optional[time] = None
 
     @field_validator("sleep_time")
     @classmethod
@@ -180,6 +184,10 @@ class UserPreferenceUpdate(BaseModel):
 class UserPreferenceResponse(BaseModel):
     wake_time: time
     sleep_time: time
+    breakfast_time: Optional[time] = None
+    lunch_time:     Optional[time] = None
+    dinner_time:    Optional[time] = None
+    bedtime:        Optional[time] = None
 
     model_config = {"from_attributes": True}
 

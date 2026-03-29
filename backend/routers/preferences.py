@@ -52,11 +52,19 @@ async def update_preferences(
             user_id=current_user.id,
             wake_time=body.wake_time,
             sleep_time=body.sleep_time,
+            breakfast_time=body.breakfast_time,
+            lunch_time=body.lunch_time,
+            dinner_time=body.dinner_time,
+            bedtime=body.bedtime,
         )
         db.add(pref)
     else:
-        pref.wake_time  = body.wake_time
-        pref.sleep_time = body.sleep_time
+        pref.wake_time      = body.wake_time
+        pref.sleep_time     = body.sleep_time
+        pref.breakfast_time = body.breakfast_time
+        pref.lunch_time     = body.lunch_time
+        pref.dinner_time    = body.dinner_time
+        pref.bedtime        = body.bedtime
 
     await db.commit()
     await db.refresh(pref)
