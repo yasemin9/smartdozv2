@@ -83,50 +83,81 @@ def _calculate_mpr(taken: int, planned: int) -> float:
     return round(min(taken / planned, 1.0), 4)
 
 
-def _weekly_trend_from_dataframe(df: pd.DataFrame) -> list[WeeklyTrendPoint]:
+def _daily_trend_from_dataframe(
+    df: pd.DataFrame,
+    period_start: datetime,
+    period_end: datetime,
+) -> list[WeeklyTrendPoint]:
     """
-    DoseLog kayıtlarından oluşan DataFrame'i alır ve
-    ISO hafta periyotlarına göre gruplar.
+    DoseLog kayıtlarından oluşan DataFrame'i alır ve günlük olarak gruplar.
+
+    Veri olmayan günler için bir önceki günün skoru (forward-fill) uygulanır;
+    böylece grafik 0%'a düşmez. Hiç veri yoksa liste boş döner.
 
     Beklenen sütunlar:
         scheduled_time (datetime), status (str)
     """
+    from datetime import date as _date
+
+    start_d = period_start.date()
+    end_d   = period_end.date()
+    all_days = [start_d + timedelta(days=i) for i in range((end_d - start_d).days + 1)]
+
     if df.empty:
         return []
 
     df = df.copy()
-    df["scheduled_time"] = pd.to_datetime(df["scheduled_time"])  # naive Istanbul
-    df["week_start"] = df["scheduled_time"].dt.to_period("W").apply(
-        lambda p: p.start_time.date()
-    )
-    # GG/AA - GG/AA formatı: haftanın baş ve bitiş tarihini Pandas ile hesapla
-    df["week_label"] = df["week_start"].apply(
-        lambda d: f"{d.strftime('%d/%m')} - {(d + timedelta(days=6)).strftime('%d/%m')}"
-    )
+    df["scheduled_time"] = pd.to_datetime(df["scheduled_time"])
+    df["day"] = df["scheduled_time"].dt.date
 
-    trend_points: list[WeeklyTrendPoint] = []
-
-    for week_start, group in df.groupby("week_start", sort=True):
+    # Günlük gruplama: her güne ait Alındı / Atlandı / Ertelendi sayımı
+    daily_map: dict = {}
+    for day, group in df.groupby("day", sort=True):
         taken     = int((group["status"] == "Alındı").sum())
         skipped   = int((group["status"] == "Atlandı").sum())
-        # was_postponed: hem hala Ertelendi hem de Ertelendi→Alındı olanları birlikte say
         postponed = int(group["was_postponed"].sum()) if "was_postponed" in group.columns else 0
-        # MPR payda: sadece terminal (Alındı+Atlandı) — Madde 4
         planned   = taken + skipped
         score     = _calculate_mpr(taken, planned)
-        label     = group["week_label"].iloc[0]
+        daily_map[day] = {
+            "taken": taken,
+            "skipped": skipped,
+            "postponed": postponed,
+            "planned": planned,
+            "score": score,
+        }
 
-        trend_points.append(
-            WeeklyTrendPoint(
-                week_label=label,
-                week_start=str(week_start),
-                planned=planned,
-                taken=taken,
-                skipped=skipped,
-                postponed=postponed,
-                adherence_score=score,
+    trend_points: list[WeeklyTrendPoint] = []
+    last_score: float | None = None
+
+    for d in all_days:
+        if d in daily_map:
+            data = daily_map[d]
+            last_score = data["score"]
+            trend_points.append(
+                WeeklyTrendPoint(
+                    week_label=d.strftime("%d/%m"),
+                    week_start=str(d),
+                    planned=data["planned"],
+                    taken=data["taken"],
+                    skipped=data["skipped"],
+                    postponed=data["postponed"],
+                    adherence_score=data["score"],
+                )
             )
-        )
+        elif last_score is not None:
+            # Veri yok: forward-fill — bir önceki günün skoru
+            trend_points.append(
+                WeeklyTrendPoint(
+                    week_label=d.strftime("%d/%m"),
+                    week_start=str(d),
+                    planned=0,
+                    taken=0,
+                    skipped=0,
+                    postponed=0,
+                    adherence_score=last_score,
+                )
+            )
+        # last_score None ise (başlangıçta veri yoksa) o günü atla
 
     return trend_points
 
@@ -216,7 +247,7 @@ async def get_adherence_summary(
 
     adherence_score = _calculate_mpr(taken_count, planned_count)
 
-    weekly_trend = _weekly_trend_from_dataframe(df)
+    weekly_trend = _daily_trend_from_dataframe(df, period_start, period_end)
 
     logger.info(
         "Uyum hesaplandı: user_id=%s, days=%s, score=%.4f",

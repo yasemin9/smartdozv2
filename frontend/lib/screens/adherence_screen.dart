@@ -503,10 +503,23 @@ class _AdherenceLineChart extends StatelessWidget {
     required this.onTouch,
   });
 
-  List<FlSpot> get _spots => [
-        for (var i = 0; i < trend.length; i++)
-          FlSpot(i.toDouble(), trend[i].adherenceScore * 100),
-      ];
+  List<FlSpot> get _spots {
+    final spots = <FlSpot>[];
+    for (var i = 0; i < trend.length; i++) {
+      final score = trend[i].adherenceScore * 100;
+      // Forward-fill noktaları (planned==0 && taken==0) dahil tümünü göster
+      spots.add(FlSpot(i.toDouble(), score));
+    }
+    return spots;
+  }
+
+  /// Veri noktası sayısına göre etiket aralığı hesapla (çakışmayı önle)
+  int _labelInterval(int count) {
+    if (count <= 7) return 1;
+    if (count <= 14) return 2;
+    if (count <= 30) return 4;
+    return 7;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -542,8 +555,9 @@ class _AdherenceLineChart extends StatelessWidget {
                   ),
                   children: [
                     TextSpan(
-                      text:
-                          '\nAlındı: ${pt.taken}  Atlandı: ${pt.skipped}',
+                      text: pt.planned > 0
+                          ? '\nAlındı: ${pt.taken}  Atlandı: ${pt.skipped}'
+                          : '\n(Önceki günden devam)',
                       style: const TextStyle(
                           fontSize: 11, fontWeight: FontWeight.normal),
                     ),
@@ -583,16 +597,28 @@ class _AdherenceLineChart extends StatelessWidget {
               sideTitles: SideTitles(
                 showTitles: true,
                 reservedSize: 32,
+                // interval: 1 = fl_chart'a yalnızca tam sayı x değerlerinde
+                // etiket çizmesini söyler; ara değerlerde etiket oluşmaz.
+                interval: 1,
                 getTitlesWidget: (value, meta) {
-                  final idx = value.toInt();
+                  // Tam sayı olmayan x değerlerini (0.5, 1.5 …) atla
+                  if ((value - value.roundToDouble()).abs() > 0.001) {
+                    return const SizedBox.shrink();
+                  }
+                  final idx = value.round();
                   if (idx < 0 || idx >= trend.length) {
                     return const SizedBox.shrink();
                   }
+                  // Etiket aralığı: çakışmayı önlemek için her N noktada bir göster
+                  final interval = _labelInterval(trend.length);
+                  if (idx % interval != 0 && idx != trend.length - 1) {
+                    return const SizedBox.shrink();
+                  }
+                  // weekLabel artık "DD/MM" formatında — split gerekmiyor
                   return Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
-                      // "16/03 - 22/03" formatından sadece baş tarihi göster
-                      trend[idx].weekLabel.split(' - ').first,
+                      trend[idx].weekLabel,
                       style: const TextStyle(fontSize: 10),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -610,10 +636,10 @@ class _AdherenceLineChart extends StatelessWidget {
             ),
           ),
 
-          minX: 0,
-          maxX: (trend.length - 1).toDouble(),
+          minX: -0.3,
+          maxX: (trend.length - 1).toDouble() + 0.3,
           minY: 0,
-          maxY: 100,
+          maxY: 105,
 
           lineBarsData: [
             LineChartBarData(
