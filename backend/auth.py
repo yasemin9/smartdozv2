@@ -1,46 +1,59 @@
-"""
-SmartDoz - FastAPI Bağımlılıkları: Kimlik Doğrulama
-
-get_current_user dependency'si; Bearer token'ı doğrular ve
-ilgili User nesnesini döner.
-"""
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
-from sqlalchemy import select
+from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from typing import Optional
+import logging
 
-from core.security import decode_access_token
+# Kendi modüllerinden importlar (Dosya yollarını kontrol et)
+from core.security import decode_access_token, security 
 from database import get_db
 from models import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
+logger = logging.getLogger(__name__)
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db),
+    token_obj = Depends(security),
+    db: AsyncSession = Depends(get_db)
 ) -> User:
-    """
-    Authorization: Bearer <token> başlığını doğrular.
-    Geçersiz/süresi dolmuş token → 401 Unauthorized
-    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Kimlik doğrulaması başarısız. Lütfen tekrar giriş yapın.",
+        detail="Kimlik doğrulaması başarısız.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    if not token_obj:
+        raise credentials_exception
+
+    token = token_obj.credentials
+    payload = decode_access_token(token)
+    
+    if not payload or not isinstance(payload, dict):
+        raise credentials_exception
+        
+    # BURASI KRİTİK: 'sub' içinden gelen veriyi string (email) olarak alıyoruz
+    user_identity = payload.get("sub")
+    if user_identity is None:
+        raise credentials_exception
+
     try:
-        payload = decode_access_token(token)
-        email: str | None = payload.get("sub")
-        if email is None:
+        # Sorguyu hem ID hem de Email kontrolü yapacak şekilde esnetiyoruz
+        # Böylece içinden ne çıkarsa çıksın (ID mi email mi) kullanıcıyı bulur.
+        if "@" in str(user_identity):
+            # Eğer içinde @ varsa email'dir
+            result = await db.execute(select(User).filter(User.email == str(user_identity)))
+        else:
+            # Değilse ID'dir
+            result = await db.execute(select(User).filter(User.id == int(user_identity)))
+            
+        user = result.scalar_one_or_none()
+        
+        if user is None:
+            logger.warning(f"⚠️ Kullanıcı bulunamadı: {user_identity}")
             raise credentials_exception
-    except JWTError:
-        raise credentials_exception
+            
+        return user
 
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-    if user is None:
+    except Exception as e:
+        logger.error(f"❌ Kullanıcı sorgulama hatası: {e}")
         raise credentials_exception
-
-    return user

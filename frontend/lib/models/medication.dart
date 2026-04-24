@@ -61,6 +61,7 @@ class Medication {
   final String? atcCode;
   final String? barcode;
   final List<InteractionWarning> interactionWarnings;
+  final String? prospectusLink; // Soru işareti null olabileceği anlamına gelir
 
   const Medication({
     this.id,
@@ -73,6 +74,7 @@ class Medication {
     this.activeIngredient,
     this.atcCode,
     this.barcode,
+    this.prospectusLink,
     this.interactionWarnings = const [],
   });
 
@@ -86,6 +88,7 @@ class Medication {
         expiryDate: DateTime.parse(json['expiry_date'] as String),
         activeIngredient: json['active_ingredient'] as String?,
         atcCode: json['atc_code'] as String?,
+        prospectusLink: json['prospectus_link'],
         barcode: json['barcode'] as String?,
         interactionWarnings: ((json['interaction_warnings'] as List<dynamic>?) ?? [])
             .map((e) => InteractionWarning.fromJson(e as Map<String, dynamic>))
@@ -101,6 +104,7 @@ class Medication {
         'active_ingredient': activeIngredient,
         'atc_code': atcCode,
         'barcode': barcode,
+        'prospectus_link': prospectusLink,
         'expiry_date':
             '${expiryDate.year}-${expiryDate.month.toString().padLeft(2, '0')}-${expiryDate.day.toString().padLeft(2, '0')}',
       };

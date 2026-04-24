@@ -26,6 +26,7 @@ from auth import get_current_user
 from database import get_db
 from models import GlobalMedication, Medication, User
 from services.summarization_service import MedicationSummary, summarize_medication
+from services.prospectus_engine import prospectus_engine, ProspectusDetail
 
 logger = logging.getLogger(__name__)
 
@@ -269,3 +270,93 @@ def _build_category(gm: GlobalMedication) -> Optional[str]:
     ]
     filled = [p.strip(" /") for p in parts if p and p.strip()]
     return " › ".join(filled) if filled else None
+
+
+# YENİ: Prospektüs Engine servisi
+from services.prospectus_engine import prospectus_engine, ProspectusDetail
+
+class ProspectusResponse(BaseModel):
+    """Prospektüs özeti — DB veya Groq kaynağından"""
+    drug_name: str
+    active_ingredient: Optional[str] = None
+    indication: str
+    dosage: str
+    side_effects: str
+    contraindications: str
+    storage: str
+    source: str  # "database" | "groq"
+    cached_at: Optional[str] = None
+
+
+@router.get(
+    "/prospectus/{drug_name}",
+    response_model=ProspectusResponse,
+    summary="İlaç prospektüsü — DB + Groq fallback",
+    tags=["Modül 5: İlaç Özetleme"],
+)
+async def get_prospectus(
+    drug_name: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ProspectusResponse:
+    """
+    İlaç prospektüsünü alır.
+    
+    **Öncelik Sırası:**
+    1. ✅ Memory cache (hızlı)
+    2. 📊 Veritabanı (GlobalMedication.prospectus_summary)
+    3. 🤖 Groq API (dinamik, uzun sürüyor)
+    
+    **Örnek**: `GET /summarize/prospectus/Aspirin`
+    
+    **Döndürür**:
+    - `source: "database"` → Ön hazırlanmış özet
+    - `source: "groq"` → Gerçek zamanlı üretilen özet
+    """
+    if not prospectus_engine:
+        logger.error("ProspectusEngine başlatılmamış!")
+        raise HTTPException(
+            status_code=500,
+            detail="Prospektüs servisi hazır değil",
+        )
+
+    try:
+        # ProspectusEngine'i çağır
+        detail = await prospectus_engine.get_prospectus(
+            drug_name=drug_name,
+            db_session=db,
+            from_models=type("M", (), {"GlobalMedication": GlobalMedication})(),
+        )
+
+        if not detail:
+            raise HTTPException(
+                status_code=404,
+                detail=f"'{drug_name}' ilacı için prospektüs bulunamadı. "
+                       f"Lütfen doktorunuza veya eczacınıza danışın.",
+            )
+
+        logger.info(
+            f"[Prospectus] user={current_user.id} drug={drug_name} "
+            f"source={detail.source} cached={detail.source == 'database'}"
+        )
+
+        return ProspectusResponse(
+            drug_name=detail.drug_name,
+            active_ingredient=detail.active_ingredient,
+            indication=detail.indication,
+            dosage=detail.dosage,
+            side_effects=detail.side_effects,
+            contraindications=detail.contraindications,
+            storage=detail.storage,
+            source=detail.source,
+            cached_at=detail.cached_at.isoformat() if detail.cached_at else None,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"[Prospectus] Hata ({drug_name}): {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Prospektüs alınırken bir hata oluştu. Lütfen tekrar deneyin.",
+        )

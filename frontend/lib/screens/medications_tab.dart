@@ -13,6 +13,10 @@ import '../services/api_service.dart';
 import 'add_medication_screen.dart';
 import 'ocr_scan_screen.dart';
 import 'voice_assistant_screen.dart';
+import 'prospectus_view_page.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart';
+
 
 // ── Renk sabitleri (Dashboard ile aynı paletit)
 const _kPrimary  = Color(0xFF1565C0);
@@ -437,39 +441,74 @@ class _MedicationCard extends StatelessWidget {
                 ],
               ),
 
+              // ... Kartın üst kısımları aynı ...
               const SizedBox(height: 12),
+              // --- Buton Alanı ---
+              Row(
+                children: [
+                  // 1. Prospektüs Butonu
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        if (medication.prospectusLink != null && medication.prospectusLink!.isNotEmpty) {
 
-              // ── Tam genişlik AI özet butonu ─────────────────────
-              SizedBox(
-                width: double.infinity,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF1565C0), Color(0xFF1A237E)],
+                          String cleanUrl = medication.prospectusLink!
+                              .replaceAll(RegExp(r'\s+'), '')
+                              .trim();
+
+                          final uri = Uri.parse(cleanUrl);
+
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          } else {
+                            print("Açılamadı: $cleanUrl");
+                          }
+
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Prospektüs bulunamadı.')),
+                          );
+                        }
+                      },
+
+                      icon: const Icon(Icons.picture_as_pdf, size: 18, color: Colors.white),
+                      label: const Text("Prospektüs", style: TextStyle(color: Colors.white)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent.withOpacity(0.8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 0,
+                      ),
                     ),
                   ),
-                  child: ElevatedButton.icon(
-                    onPressed: () => MedicationInfoScreen.showSheet(
-                      context,
-                      medicationId: medication.id,
-                      medicationName: medication.name,
-                    ),
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 16),
-                    label: const Text('SmartDoz Yapay Zeka Özeti'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.white,
-                      shadowColor: Colors.transparent,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      textStyle: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 13),
+                  const SizedBox(width: 10),
+                  // 2. SmartDoz Yapay Zeka Özeti (Gradientli olanı buraya taşıdık)
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1565C0), Color(0xFF1A237E)],
+                        ),
+                      ),
+                      child: ElevatedButton.icon(
+                        onPressed: () => MedicationInfoScreen.showSheet(
+                          context,
+                          medicationId: medication.id,
+                          medicationName: medication.name,
+                        ),
+                        icon: const Icon(Icons.auto_awesome_rounded, size: 16, color: Colors.white),
+                        label: const Text('AI Özet', style: TextStyle(color: Colors.white)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ],
           ),

@@ -624,6 +624,34 @@ class ApiService extends ChangeNotifier {
     throw ApiException(_extractDetail(_parseBody(response)));
   }
 
+  // ✅ YENİ: Prospektüs al (DB veya Groq'tan)
+  /// İlaç prospektüsünü alır — DB'den veya Groq API'den dinamik
+  /// 
+  /// [drugName] İlaç adı (örn: "Aspirin")
+  /// 
+  /// Döndürür:
+  /// - `source: "database"` → Ön hazırlanmış özet (hızlı)
+  /// - `source: "groq"` → Dinamik üretilen özet (yavaş ama güncel)
+  Future<ProspectusData> getProspectus(String drugName) async {
+    final uri = Uri.parse('$_kBaseUrl/summarize/prospectus/$drugName');
+    final response = await http.get(uri, headers: _authHeaders);
+    
+    if (response.statusCode == 200) {
+      final data = _parseBody(response) as Map<String, dynamic>;
+      return ProspectusData.fromJson(data);
+    }
+    
+    if (response.statusCode == 401) {
+      await _handleUnauthorized();
+    }
+    
+    if (response.statusCode == 404) {
+      throw ApiException("${drugName} ilacı için prospektüs bulunamadı.");
+    }
+    
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
   String _extractDetail(dynamic data) {
     if (data is Map<String, dynamic>) {
       final detail = data['detail'];
@@ -753,4 +781,53 @@ class MedSearchResult {
         atcCode: json['atc_code'] as String?,
         barcode: json['barcode'] as String?,
       );
+}
+
+/// Prospektüs veri modeli (DB veya Groq'tan)
+class ProspectusData {
+  final String drugName;
+  final String? activeIngredient;
+  final String indication;
+  final String dosage;
+  final String sideEffects;
+  final String contraindications;
+  final String storage;
+  final String source; // "database" | "groq"
+  final String? cachedAt;
+
+  ProspectusData({
+    required this.drugName,
+    this.activeIngredient,
+    required this.indication,
+    required this.dosage,
+    required this.sideEffects,
+    required this.contraindications,
+    required this.storage,
+    required this.source,
+    this.cachedAt,
+  });
+
+  factory ProspectusData.fromJson(Map<String, dynamic> json) => ProspectusData(
+    drugName: json['drug_name'] as String? ?? 'Bilinmiyor',
+    activeIngredient: json['active_ingredient'] as String?,
+    indication: json['indication'] as String? ?? 'Bilgi mevcut değil.',
+    dosage: json['dosage'] as String? ?? 'Bilgi mevcut değil.',
+    sideEffects: json['side_effects'] as String? ?? 'Bilgi mevcut değil.',
+    contraindications: json['contraindications'] as String? ?? 'Bilgi mevcut değil.',
+    storage: json['storage'] as String? ?? 'Bilgi mevcut değil.',
+    source: json['source'] as String? ?? 'database',
+    cachedAt: json['cached_at'] as String?,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'drug_name': drugName,
+    'active_ingredient': activeIngredient,
+    'indication': indication,
+    'dosage': dosage,
+    'side_effects': sideEffects,
+    'contraindications': contraindications,
+    'storage': storage,
+    'source': source,
+    'cached_at': cachedAt,
+  };
 }

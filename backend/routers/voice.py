@@ -4,6 +4,7 @@ SmartDoz - Modül 6: Sesli Asistan Backend Router
 POST /ai/voice-query
     — Kullanıcının sesli komut transkriptini alır, Groq Llama 3.1 ile
       kişiselleştirilmiş (bugünkü ilaç + doz bağlamıyla) yanıt üretir.
+    — İlaç etkileşimlerini InteractionEngine'den kontrol eder.
     — GROQ_API_KEY yoksa veya Groq ulaşılamaz ise {"answer": null,
       "source": "fallback"} döner → Flutter CommandParser devreye girer.
 
@@ -27,18 +28,19 @@ from auth import get_current_user
 from core.config import settings
 from database import get_db
 from models import DoseLog, GlobalMedication, Medication, User
+from services.interaction_engine import interaction_engine, translate_to_turkish
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["Modül 6 — Sesli Asistan"])
 
-# ── Groq / OpenAI istemcisi (lazy import) ────────────────────────────────────
+# ── Groq / OpenAI istemcisi ──────────────────────────────────────────────────
 _GROQ_MODEL = "llama-3.3-70b-versatile"
 _GROQ_BASE   = "https://api.groq.com/openai/v1"
 
 # ── Sistem Prompt ─────────────────────────────────────────────────────────────
 _SYSTEM_PROMPT = """# ROL
-Sen SmartDoz akıllı ilaç asistanısın. İlaç yönetimi, hatırlatıcılar ve genel tıbbi/farmakolojik bilgi konularında yardımcı olursun.
+Sen SmartDoz akıllı ilaç asistanısın. İlaç yönetimi, hatırlatıcılar, etkileşimler ve genel tıbbi/farmakolojik bilgi konularında yardımcı olursun.
 
 # TEMEL KURALLAR
 - Kısa, net, sesle okunacak cevaplar ver — maksimum 3 cümle.
@@ -58,6 +60,15 @@ Sen SmartDoz akıllı ilaç asistanısın. İlaç yönetimi, hatırlatıcılar v
    → Eğitim bilgilerini kullan, doğru ve özlü Türkçe açıkla.
    → Yanıtın sonuna "Kesin bilgi için doktorunuza veya eczacınıza danışın." ekle.
    → Kişisel bağlamdaki ilaca soru soruluyorsa, bağlamdaki bilgiyi (etken madde, kategori) de dikkate al.
+
+# İLAÇ ETKİLEŞİMLERİ (ÇOK ÖNEMLİ)
+Kullanıcı etkileşim sorarsa:
+- Kayıtlı ilaçlar arasında uyumsuzluk varsa NET VE AÇIK UYAR ver.
+- Risk seviyesini belirt:
+  * YUKSEK → "Kesinlikle birlikte alınmaz — doktor danışması zorunlu!"
+  * ORTA → "Dikkatli kullanılmalı — doktor kontrol etmelidir"
+  * DUSUK → "Hafif etkileşim — gözlenebilir"
+- ASLA güvenli olup olmadığından emin değilsen, doktor danışması öner.
 
 # DİYALOG DURUMU YÖNETİMİ (ÇOK ÖNEMLİ)
 Konuşma geçmişini dikkate alarak yanıt ver. Eğer önceki mesajında bir onay sorusu sorduysan
@@ -92,13 +103,26 @@ class VoiceQueryRequest(BaseModel):
         description="Son 5 konuşma turu (kullanıcı + asistan), bağlam için",
     )
 
+class InteractionDetail(BaseModel):
+    """İlaç etkileşim detayı"""
+    drug1: str
+    drug2: str
+    description: str
+    risk_level: str  # "YUKSEK" | "ORTA" | "DUSUK"
+    matched_by: str  # "EXACT" | "LEVENSHTEIN"
+    confidence_score: float  # 0.0 - 1.0
+
 class VoiceQueryResponse(BaseModel):
     answer: Optional[str] = None
     source: str  # "groq" | "fallback"
-    action: Optional[str] = None          # "delete_medication" | "add_medication" | "log_dose" | None
+    action: Optional[str] = None          
     medication_name: Optional[str] = None
     medication_id: Optional[int] = None
-    dose_log_id: Optional[int] = None     # log_dose action için
+    dose_log_id: Optional[int] = None
+    
+    # Etkileşim alanları
+    interactions: Optional[list[InteractionDetail]] = None
+    has_severe_interaction: bool = False
 
 # ── Yardımcı: Bağlam Oluşturma ────────────────────────────────────────────────
 
@@ -185,7 +209,6 @@ def _med_name_for(med_id: int, meds: list) -> str:
 # ── Intent Tespiti ────────────────────────────────────────────────────────────
 
 import re as _re
-import unicodedata as _uc
 
 _TR_MAP = str.maketrans("çşğüöıİĞŞÇÜÖ", "csguoiIGSCUO")
 
@@ -205,7 +228,10 @@ _RE_LOG_TAKEN = _re.compile(
     r'\b(aldim|ictim|kullandim|yuttum|doz[u]?\s*aldim|ilac[i]?\s*aldim|ictim)\b',
     _re.IGNORECASE | _re.UNICODE,
 )
-
+_RE_INTERACTION = _re.compile(
+    r'\b(etkileşim|uyumlu\s+mu|beraber\s+alınır\s*mı|ile\s+alınır\s*mı|yan\s+etki|uyumsuz|birlikte\s+alınır\s*mı)\b',
+    _re.IGNORECASE | _re.UNICODE,
+)
 
 _RE_CONFIRM = _re.compile(
     r'\b(evet|tamam|onayla|onay|ok|kabul|evet\s*sil|kesinlikle|tabii)\b',
@@ -294,6 +320,14 @@ def _detect_intent(
                 hist_log = pending.id if pending else None
             return hist_action, hist_name, hist_id, hist_log
 
+    # YENİ: Etkileşim kontrolü
+    if _RE_INTERACTION.search(norm_query):
+        matched = _match_medication(norm_query, medications)
+        if matched:
+            return "check_interaction", matched.name, matched.id, None
+        # Eğer ilaç belirtilmemişse tüm etkileşimleri kontrol et
+        return "check_all_interactions", None, None, None
+
     if _RE_DELETE.search(norm_query):
         matched = _match_medication(norm_query, medications)
         if matched:
@@ -340,6 +374,121 @@ def _match_medication(norm_query: str, medications: list):
     return best
 
 
+# ── YENİ: Etkileşim Kontrol Fonksiyonları ─────────────────────────────────────
+
+def _check_all_interactions(medications: list) -> list[InteractionDetail]:
+    """
+    Tüm kayıtlı ilaçlar arasındaki etkileşimleri kontrol eder.
+    Döndürür: InteractionDetail nesneleri listesi
+    """
+    if not interaction_engine.is_loaded:
+        logger.warning("InteractionEngine yüklenmemiş — etkileşim kontrolü atlanıyor")
+        return []
+
+    interactions: list[InteractionDetail] = []
+    checked = set()
+
+    for i, med_a in enumerate(medications):
+        for med_b in medications[i+1:]:
+            # Tekrarlayan kontrolleri önle
+            pair_key = tuple(sorted([med_a.id, med_b.id]))
+            if pair_key in checked:
+                continue
+            checked.add(pair_key)
+
+            # InteractionEngine'i kullan
+            hit = interaction_engine.lookup(
+                med_a.name,
+                med_b.name,
+                levenshtein_threshold=78,
+            )
+
+            if hit:
+                # Açıklamayı Türkçeye çevir
+                tr_description = translate_to_turkish(hit["description"])
+
+                interactions.append(
+                    InteractionDetail(
+                        drug1=med_a.name,
+                        drug2=med_b.name,
+                        description=tr_description,
+                        risk_level=hit["risk_level"],
+                        matched_by=hit["matched_by"],
+                        confidence_score=hit["confidence_score"],
+                    )
+                )
+
+    return interactions
+
+
+def _check_specific_interactions(med_id: int, medications: list) -> list[InteractionDetail]:
+    """
+    Belirli bir ilacın diğer tüm ilaçlarla etkileşimlerini kontrol eder.
+    Döndürür: InteractionDetail nesneleri listesi
+    """
+    if not interaction_engine.is_loaded:
+        logger.warning("InteractionEngine yüklenmemiş — etkileşim kontrolü atlanıyor")
+        return []
+
+    current_med = next((m for m in medications if m.id == med_id), None)
+    if not current_med:
+        return []
+
+    interactions: list[InteractionDetail] = []
+
+    for other_med in medications:
+        if other_med.id == med_id:
+            continue
+
+        hit = interaction_engine.lookup(
+            current_med.name,
+            other_med.name,
+            levenshtein_threshold=78,
+        )
+
+        if hit:
+            tr_desc = translate_to_turkish(hit["description"])
+            interactions.append(
+                InteractionDetail(
+                    drug1=current_med.name,
+                    drug2=other_med.name,
+                    description=tr_desc,
+                    risk_level=hit["risk_level"],
+                    matched_by=hit["matched_by"],
+                    confidence_score=hit["confidence_score"],
+                )
+            )
+
+    return interactions
+
+
+def _format_interactions_for_voice(interactions: list[InteractionDetail]) -> str:
+    """Etkileşimleri sesle okunabilir formata dönüştürür"""
+    if not interactions:
+        return ""
+
+    lines = ["⚠️ Önemli bilgi:"]
+
+    # Risk seviyesine göre sırala
+    severity_order = {"YUKSEK": 0, "ORTA": 1, "DUSUK": 2}
+    sorted_inter = sorted(
+        interactions,
+        key=lambda x: severity_order.get(x.risk_level, 999)
+    )
+
+    for inter in sorted_inter:
+        if inter.risk_level == "YUKSEK":
+            lines.append(f"🚫 UYARI: {inter.drug1} + {inter.drug2} — {inter.description}")
+        elif inter.risk_level == "ORTA":
+            lines.append(f"⚡ DİKKAT: {inter.drug1} + {inter.drug2} — {inter.description}")
+        else:
+            lines.append(f"ℹ️ {inter.drug1} + {inter.drug2} — {inter.description}")
+
+    lines.append("\n→ Doktor veya eczacınızla mutlaka danışın.")
+    return "\n".join(lines)
+
+
+# ── Ana Endpoint ──────────────────────────────────────────────────────────────
 
 @router.post(
     "/voice-query",
@@ -353,6 +502,7 @@ async def voice_query(
 ) -> VoiceQueryResponse:
     """
     Sesli komut transkriptini Groq Llama 3.1 ile işler.
+    İlaç etkileşimlerini InteractionEngine'den kontrol eder.
     Kullanıcının bugünkü ilaç/doz bağlamını sistem prompt'una enjekte eder.
     GROQ_API_KEY yoksa veya Groq ulaşılamaz ise `source: "fallback"` döner.
     """
@@ -395,13 +545,35 @@ async def voice_query(
         context = "Kullanıcı bağlamı alınamadı."
 
     # Intent tespiti — Groq'tan bağımsız, deterministic
-    # Geçmiş konuşmayı da ver; onay cevaplarında (evet/hayır) history'den action çıkarılır
     action, med_name, med_id, dose_log_id = _detect_intent(
         body.query, list(medications), list(today_logs),
         history=body.conversation_history,
     )
 
-    system_with_ctx = f"{_SYSTEM_PROMPT}\n\n=== KULLANICI BAĞLAMI ===\n{context}"
+    # Etkileşim kontrolü
+    interactions_list: list[InteractionDetail] = []
+    has_severe = False
+    interaction_context = ""
+
+    if action == "check_all_interactions":
+        # Tüm etkileşimleri kontrol et
+        interactions_list = _check_all_interactions(list(medications))
+        has_severe = any(inter.risk_level == "YUKSEK" for inter in interactions_list)
+        if interactions_list:
+            interaction_context = "\n\n=== TESPİT EDİLEN ETKİLEŞİMLER ===\n"
+            interaction_context += _format_interactions_for_voice(interactions_list)
+        logger.info(f"[VoiceAI] Tüm etkileşimler kontrol: user={current_user.id}, {len(interactions_list)} bulundu")
+
+    elif action == "check_interaction" and med_id:
+        # Belirli bir ilacın diğerleriyle etkileşimlerini kontrol et
+        interactions_list = _check_specific_interactions(med_id, list(medications))
+        has_severe = any(inter.risk_level == "YUKSEK" for inter in interactions_list)
+        if interactions_list:
+            interaction_context = "\n\n=== ETKİLEŞİM BİLGİSİ ===\n"
+            interaction_context += _format_interactions_for_voice(interactions_list)
+        logger.info(f"[VoiceAI] {med_name} etkileşimleri kontrol: user={current_user.id}, {len(interactions_list)} bulundu")
+
+    system_with_ctx = f"{_SYSTEM_PROMPT}\n\n=== KULLANICI BAĞLAMI ===\n{context}{interaction_context}"
 
     try:
         client = OpenAI(
@@ -431,7 +603,10 @@ async def voice_query(
         if not answer:
             return VoiceQueryResponse(answer=None, source="fallback")
 
-        logger.info(f"[VoiceAI] user={current_user.id} action={action} q={repr(body.query)[:60]}")
+        logger.info(
+            f"[VoiceAI] user={current_user.id} action={action} "
+            f"interactions={len(interactions_list)} q={repr(body.query)[:60]}"
+        )
         return VoiceQueryResponse(
             answer=answer,
             source="groq",
@@ -439,10 +614,12 @@ async def voice_query(
             medication_name=med_name,
             medication_id=med_id,
             dose_log_id=dose_log_id,
+            interactions=interactions_list if interactions_list else None,
+            has_severe_interaction=has_severe,
         )
 
     except Exception as exc:
-        logger.warning(f"[VoiceAI] Groq hatası: {exc}")
+        logger.error(f"[VoiceAI] Groq hatası: {exc}", exc_info=True)
         return VoiceQueryResponse(answer=None, source="fallback")
 
 
@@ -480,7 +657,7 @@ async def voice_med_search(
 
     # pg_trgm similarity denemesi; olmadığında ILIKE fallback
     try:
-        from sqlalchemy import func as _func, literal
+        from sqlalchemy import func as _func
         result = await db.execute(
             select(GlobalMedication)
             .where(GlobalMedication.product_name.ilike(f"%{q}%"))
@@ -490,6 +667,7 @@ async def voice_med_search(
             .limit(limit)
         )
     except Exception:
+        await db.rollback()
         result = await db.execute(
             select(GlobalMedication)
             .where(GlobalMedication.product_name.ilike(f"%{q}%"))

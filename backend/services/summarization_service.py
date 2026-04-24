@@ -742,14 +742,15 @@ _LLM_SYSTEM_PROMPT = (
 def _llm_summarize(text: str, product_name: str) -> Optional[dict]:
     """
     Groq API (ücretsiz) ile yapılandırılmış 3-kategori özet üretir.
-    GROQ_API_KEY ortam değişkeni yoksa veya paket kurulu değilse None döner.
+    GROQ_API_KEY yoksa veya hata olursa None döner (fallback devreye girer).
     """
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
+        logger.debug("GROQ_API_KEY tanımlanmamış — LLM fallback atlanıyor")
         return None
 
     try:
-        from openai import OpenAI  # type: ignore  # groq, openai SDK ile uyumlu
+        from openai import OpenAI
     except ImportError:
         logger.info("openai paketi kurulu değil — LLM özetleme atlanıyor.")
         return None
@@ -780,15 +781,23 @@ def _llm_summarize(text: str, product_name: str) -> Optional[dict]:
         )
         raw = response.choices[0].message.content or "{}"
         data = json.loads(raw)
+        
+        # ✅ Başarı logu
+        logger.info(f"✅ Groq LLM özet üretildi: {product_name}")
+        
         return {
-            "temel_faydasi": [str(x) for x in data.get("temel_faydasi", [])[:3]],
-            "kullanim_sekli": [str(x) for x in data.get("kullanim_sekli", [])[:3]],
+            "temel_faydasi": [str(x).strip() for x in data.get("temel_faydasi", [])[:3] if x],
+            "kullanim_sekli": [str(x).strip() for x in data.get("kullanim_sekli", [])[:3] if x],
             "dikkat_edilecekler": [
-                str(x) for x in data.get("dikkat_edilecekler", [])[:4]
+                str(x).strip() for x in data.get("dikkat_edilecekler", [])[:4] if x
             ],
         }
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Groq JSON parse hatası ({product_name}): {exc}")
+        return None
     except Exception as exc:
-        logger.warning(f"Groq LLM özetleme hatası ({product_name}): {exc}")
+        logger.warning(f"⚠️ Groq LLM özetleme hatası ({product_name}): {exc}")
+        # FALLBACK: Kural tabanlıya düş — hiçbir şey dönme, None ile fallback devreye gir
         return None
 
 

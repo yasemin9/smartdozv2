@@ -395,23 +395,37 @@ async def _build_interaction_warnings(
     return warnings
 
 
-@router.get(
-    "/",
-    response_model=List[MedicationResponse],
-    summary="Kullanıcının ilaç listesi",
-)
+from sqlalchemy import select, outerjoin
+from models import Medication, GlobalMedication # GlobalMedication modelini import ettiğinden emin ol
+
+@router.get("/", response_model=List[MedicationResponse])
 async def list_medications(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Oturumdaki kullanıcıya ait tüm ilaçları döner."""
-    result = await db.execute(
-        select(Medication)
+    # DİKKAT: Medication.name == GlobalMedication.product_name şeklinde eşleştiriyoruz
+    query = (
+        select(Medication, GlobalMedication.prospectus_link)
+        .outerjoin(GlobalMedication, Medication.name == GlobalMedication.product_name)
         .where(Medication.user_id == current_user.id)
         .order_by(Medication.expiry_date)
     )
-    return result.scalars().all()
 
+    result = await db.execute(query)
+    rows = result.all()
+
+    final_list = []
+    for row in rows:
+        med_obj = row[0]
+        global_link = row[1]
+
+        # Global tablodan gelen linki objeye aktarıyoruz
+        if global_link:
+            med_obj.prospectus_link = global_link
+            
+        final_list.append(med_obj)
+
+    return final_list
 
 @router.get(
     "/interactions/critical",
@@ -480,6 +494,7 @@ async def create_medication(
         atc_code=new_med.atc_code,
         barcode=new_med.barcode,
         interaction_warnings=interaction_warnings,
+        prospectus_link=new_med.prospectus_link,
     )
 
 

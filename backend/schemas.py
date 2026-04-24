@@ -154,6 +154,7 @@ class MedicationResponse(BaseModel):
     active_ingredient: Optional[str] = None
     atc_code: Optional[str] = None
     barcode: Optional[str] = None
+    prospectus_link: Optional[str] = None
     interaction_warnings: List[InteractionWarningResponse] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
@@ -488,3 +489,34 @@ class OCRScanResponse(BaseModel):
     """
     ocr_raw_text: str
     candidates: List[OCRMatchCandidate]
+
+
+# (Bu satırları var olan schemas.py'ye ekle)
+
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+
+class ProspectusResponse(BaseModel):
+    """Prospektüs listeleme cevabı"""
+    id: int
+    product_name: str
+    is_summarized: bool
+    summary_created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ProspectusDetailResponse(BaseModel):
+    """Prospektüs detay cevabı"""
+    id: int
+    product_name: str
+    prospectus_link: str
+    summary_text: str
+    is_summarized: bool
+    last_updated: str
+
+    class Config:
+        from_attributes = True

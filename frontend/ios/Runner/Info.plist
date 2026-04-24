@@ -1,0 +1,14 @@
+<dict>
+    <!-- ...existing code... -->
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_http._tcp</string>
+        <string>_https._tcp</string>
+    </array>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Prospektüs indirmek için ağ erişimi gereklidir.</string>
+    <key>NSBonjourServiceTypes</key>
+    <array>
+        <string>_http._tcp</string>
+    </array>
+</dict>

@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 
 import '../models/medication_summary.dart';
 import '../services/api_service.dart';
+import 'prospectus_view_page.dart'; 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ekrana giriş noktası: medication_id (kullanıcı ilacı) veya globalMedId

@@ -17,7 +17,9 @@
         "provider",
         "shared_preferences",
         "speech_to_text",
-        "table_calendar"
+        "syncfusion_flutter_pdfviewer",
+        "table_calendar",
+        "url_launcher"
       ],
       "devDependencies": [
         "flutter_lints",
@@ -114,6 +116,20 @@
       ]
     },
     {
+      "name": "url_launcher",
+      "version": "6.3.2",
+      "dependencies": [
+        "flutter",
+        "url_launcher_android",
+        "url_launcher_ios",
+        "url_launcher_linux",
+        "url_launcher_macos",
+        "url_launcher_platform_interface",
+        "url_launcher_web",
+        "url_launcher_windows"
+      ]
+    },
+    {
       "name": "intl",
       "version": "0.19.0",
       "dependencies": [
@@ -151,6 +167,29 @@
         "async",
         "http_parser",
         "meta",
+        "web"
+      ]
+    },
+    {
+      "name": "syncfusion_flutter_pdfviewer",
+      "version": "33.2.3",
+      "dependencies": [
+        "async",
+        "device_info_plus",
+        "flutter",
+        "http",
+        "intl",
+        "syncfusion_flutter_core",
+        "syncfusion_flutter_pdf",
+        "syncfusion_flutter_signaturepad",
+        "syncfusion_pdfviewer_linux",
+        "syncfusion_pdfviewer_macos",
+        "syncfusion_pdfviewer_platform_interface",
+        "syncfusion_pdfviewer_web",
+        "syncfusion_pdfviewer_windows",
+        "url_launcher",
+        "uuid",
+        "vector_math",
         "web"
       ]
     },
@@ -399,6 +438,64 @@
       ]
     },
     {
+      "name": "url_launcher_windows",
+      "version": "3.1.5",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_web",
+      "version": "2.4.2",
+      "dependencies": [
+        "flutter",
+        "flutter_web_plugins",
+        "url_launcher_platform_interface",
+        "web"
+      ]
+    },
+    {
+      "name": "url_launcher_platform_interface",
+      "version": "2.3.2",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_macos",
+      "version": "3.2.5",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_linux",
+      "version": "3.2.2",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_ios",
+      "version": "6.4.1",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_android",
+      "version": "6.3.29",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
       "name": "nested",
       "version": "1.0.0",
       "dependencies": [
@@ -479,6 +576,100 @@
       "dependencies": [
         "collection",
         "meta"
+      ]
+    },
+    {
+      "name": "syncfusion_flutter_signaturepad",
+      "version": "33.2.3",
+      "dependencies": [
+        "flutter",
+        "syncfusion_flutter_core",
+        "web"
+      ]
+    },
+    {
+      "name": "syncfusion_flutter_pdf",
+      "version": "33.2.3",
+      "dependencies": [
+        "convert",
+        "crypto",
+        "flutter",
+        "http",
+        "intl",
+        "syncfusion_flutter_core",
+        "xml"
+      ]
+    },
+    {
+      "name": "syncfusion_flutter_core",
+      "version": "33.2.3",
+      "dependencies": [
+        "flutter",
+        "vector_math"
+      ]
+    },
+    {
+      "name": "syncfusion_pdfviewer_linux",
+      "version": "33.2.3",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "syncfusion_pdfviewer_windows",
+      "version": "33.2.3",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
+      "name": "syncfusion_pdfviewer_macos",
+      "version": "33.2.3",
+      "dependencies": [
+        "flutter",
+        "syncfusion_pdfviewer_platform_interface"
+      ]
+    },
+    {
+      "name": "syncfusion_pdfviewer_web",
+      "version": "33.2.3",
+      "dependencies": [
+        "flutter",
+        "flutter_web_plugins",
+        "syncfusion_pdfviewer_platform_interface",
+        "web"
+      ]
+    },
+    {
+      "name": "syncfusion_pdfviewer_platform_interface",
+      "version": "33.2.3",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "device_info_plus",
+      "version": "12.4.0",
+      "dependencies": [
+        "device_info_plus_platform_interface",
+        "ffi",
+        "file",
+        "flutter",
+        "flutter_web_plugins",
+        "meta",
+        "web",
+        "win32",
+        "win32_registry"
+      ]
+    },
+    {
+      "name": "uuid",
+      "version": "4.5.3",
+      "dependencies": [
+        "crypto",
+        "fixnum"
       ]
     },
     {
@@ -675,13 +866,59 @@
       ]
     },
     {
-      "name": "vm_service",
-      "version": "15.0.2",
-      "dependencies": []
+      "name": "convert",
+      "version": "3.1.2",
+      "dependencies": [
+        "typed_data"
+      ]
+    },
+    {
+      "name": "xml",
+      "version": "6.6.1",
+      "dependencies": [
+        "collection",
+        "meta",
+        "petitparser"
+      ]
+    },
+    {
+      "name": "win32_registry",
+      "version": "2.1.0",
+      "dependencies": [
+        "ffi",
+        "meta",
+        "win32"
+      ]
+    },
+    {
+      "name": "win32",
+      "version": "5.15.0",
+      "dependencies": [
+        "ffi"
+      ]
     },
     {
       "name": "ffi",
       "version": "2.2.0",
+      "dependencies": []
+    },
+    {
+      "name": "device_info_plus_platform_interface",
+      "version": "7.0.3",
+      "dependencies": [
+        "flutter",
+        "meta",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "fixnum",
+      "version": "1.1.1",
+      "dependencies": []
+    },
+    {
+      "name": "vm_service",
+      "version": "15.0.2",
       "dependencies": []
     },
     {
@@ -708,6 +945,14 @@
         "logging",
         "native_toolchain_c",
         "pub_semver"
+      ]
+    },
+    {
+      "name": "petitparser",
+      "version": "7.0.2",
+      "dependencies": [
+        "collection",
+        "meta"
       ]
     },
     {

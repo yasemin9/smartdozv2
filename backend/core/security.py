@@ -1,75 +1,105 @@
 """
-SmartDoz - Güvenlik: SHA-256 Tuzlanmış Şifreleme ve JWT Yönetimi
-
-Doküman Referansı (EK1_revize.pdf): SHA-256 tabanlı, her kullanıcıya özgü
-rastgele salt ile şifre saklama. Sabit-zamanlı karşılaştırma ile
-timing-attack koruması sağlanmaktadır.
+SmartDoz - Güvenlik: SHA-256 Tuzlanmış Şifreleme ve JWT Yönetimi (Async Uyumlu)
 """
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
-
-from jose import JWTError, jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession # Session yerine AsyncSession
+from sqlalchemy import select, or_ # Query yerine select kullanacağız
+from typing import Optional
+import jwt
+import logging
 
 from core.config import settings
+from database import get_db
+from models import User
 
+logger = logging.getLogger(__name__)
+
+security = HTTPBearer(auto_error=False)
 
 # ──────────────────────────────────────────────────────
-# Şifre İşlemleri
+# Kimlik Doğrulama (Dependency) - ASYNC DÜZELTİLDİ
 # ──────────────────────────────────────────────────────
 
-def _generate_salt() -> str:
-    """Kriptografik olarak güvenli 32 byte'lık hex salt üretir."""
-    return secrets.token_hex(32)
+async def get_current_user(
+    token_obj = Depends(security),
+    db: AsyncSession = Depends(get_db) # AsyncSession olarak güncelledik
+) -> Optional[User]:
+    if not token_obj:
+        return None
+    
+    token = token_obj.credentials
+    
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM]
+        )
+        user_id = payload.get("sub")
+        
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Geçersiz token")
+            
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token doğrulanamadı")
+    
+    # HATA BURADAYDI: AsyncSession'da .query() kullanılmaz.
+    # Yeni nesil asenkron sorgu yapısı:
+    stmt = select(User).where(
+        or_(
+            User.id == (int(user_id) if str(user_id).isdigit() else -1), 
+            User.email == str(user_id)
+        )
+    )
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+    
+    return user
 
+# ──────────────────────────────────────────────────────
+# Şifre İşlemleri (Giriş Sorununu Çözdüğümüz Hali)
+# ──────────────────────────────────────────────────────
 
-def hash_password(plain_password: str) -> str:
-    """
-    Şifreyi SHA-256 + tuz (salt) ile özetler.
-    Saklama formatı: '<salt>$<sha256_hex_digest>'
-    """
-    salt = _generate_salt()
-    digest = hashlib.sha256(f"{salt}{plain_password}".encode("utf-8")).hexdigest()
+def hash_password(password: str) -> str:
+    """Eski yapıya uygun 32 byte hex salt ile şifreleme."""
+    salt = secrets.token_hex(32)
+    digest = hashlib.sha256(f"{salt}{password}".encode("utf-8")).hexdigest()
     return f"{salt}${digest}"
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Girilen şifreyi veritabanındaki hash ile doğrular.
-    Timing-attack'a karşı secrets.compare_digest kullanılır.
-    """
+    """Eski hash'leri doğrulayabilen verify fonksiyonu."""
     try:
+        if "$" not in hashed_password:
+            return False
+            
         salt, stored_digest = hashed_password.split("$", 1)
-    except ValueError:
+        computed_digest = hashlib.sha256(f"{salt}{plain_password}".encode("utf-8")).hexdigest()
+        
+        return secrets.compare_digest(computed_digest, stored_digest)
+    except Exception as e:
+        logger.error(f"Şifre doğrulama hatası: {e}")
         return False
-
-    computed_digest = hashlib.sha256(
-        f"{salt}{plain_password}".encode("utf-8")
-    ).hexdigest()
-
-    return secrets.compare_digest(computed_digest, stored_digest)
-
 
 # ──────────────────────────────────────────────────────
 # JWT İşlemleri
 # ──────────────────────────────────────────────────────
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    """
-    Verilen payload ile imzalı JWT access token üretir.
-    Varsayılan süre: settings.ACCESS_TOKEN_EXPIRE_MINUTES
-    """
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode["exp"] = expire
+    to_encode.update({"exp": expire})
+    
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
-
-def decode_access_token(token: str) -> dict:
-    """
-    JWT token'ı doğrular ve payload sözlüğünü döner.
-    Geçersiz/süresi dolmuş token için JWTError fırlatır.
-    """
-    return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+def decode_access_token(token: str) -> Optional[dict]:
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except Exception:
+        return None

@@ -11,10 +11,20 @@ Tablolar:
 from datetime import date, datetime, time
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Integer, Text, Time, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Integer, Text, Time, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum, UniqueConstraint, CheckConstraint
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from enum import Enum as PyEnum
 
-from database import Base
+Base = declarative_base()
+
+
+class ViewType(PyEnum):
+    SUMMARY = "summary"
+    FULL_TEXT = "full_text"
 
 
 class User(Base):
@@ -64,7 +74,7 @@ class Medication(Base):
     active_ingredient: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     atc_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     barcode: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-
+    prospectus_link = Column(Text, nullable=True)
     user: Mapped["User"] = relationship("User", back_populates="medications")
     dose_logs: Mapped[list["DoseLog"]] = relationship(
         "DoseLog",
@@ -160,6 +170,7 @@ class GlobalMedication(Base):
     atc_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
     active_ingredient: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     product_name: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
+    prospectus_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     category_1: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     category_2: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     category_3: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
@@ -234,3 +245,64 @@ class AIDecision(Base):
             f"<AIDecision id={self.id} type={self.decision_type!r} "
             f"status={self.status!r} user_id={self.user_id}>"
         )
+
+
+class Prospectus(Base):
+    __tablename__ = "prospectus"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    medication_id = Column(Integer, ForeignKey("global_medications.id", ondelete="CASCADE"))
+    product_name = Column(String(255), unique=True, nullable=False, index=True)
+    prospectus_link = Column(Text, nullable=False)
+    full_text = Column(Text, nullable=True)
+    summary_text = Column(Text, nullable=True)
+    is_summarized = Column(Boolean, default=False, index=True)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # İlişkiler
+    analytics = relationship("ProspectusAnalytics", back_populates="prospectus", cascade="all, delete-orphan")
+    user_readings = relationship("ProspectusUserReading", back_populates="prospectus", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<Prospectus(id={self.id}, product_name='{self.product_name}')>"
+
+
+class ProspectusAnalytics(Base):
+    __tablename__ = "prospectus_analytics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    prospectus_id = Column(Integer, ForeignKey("prospectus.id", ondelete="CASCADE"), unique=True, nullable=False)
+    view_count = Column(Integer, default=0)
+    unique_viewers = Column(Integer, default=0)
+    last_viewed = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # İlişkiler
+    prospectus = relationship("Prospectus", back_populates="analytics")
+    
+    def __repr__(self):
+        return f"<ProspectusAnalytics(prospectus_id={self.prospectus_id}, view_count={self.view_count})>"
+
+
+class ProspectusUserReading(Base):
+    __tablename__ = "prospectus_user_reading"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    prospectus_id = Column(Integer, ForeignKey("prospectus.id", ondelete="CASCADE"), nullable=False, index=True)
+    view_type = Column(Enum(ViewType), default=ViewType.SUMMARY)
+    read_duration_seconds = Column(Integer, nullable=True)
+    read_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('user_id', 'prospectus_id', name='unique_user_prospectus'),
+        CheckConstraint('read_duration_seconds >= 0', name='valid_duration'),
+    )
+    
+    # İlişkiler
+    prospectus = relationship("Prospectus", back_populates="user_readings")
+    
+    def __repr__(self):
+        return f"<ProspectusUserReading(user_id={self.user_id}, prospectus_id={self.prospectus_id})>"
