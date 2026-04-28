@@ -10,6 +10,7 @@ Rapor 4.3.5: Müşteri API çağrısı → Backend → HF | Groq
 """
 from __future__ import annotations
 
+import aiohttp
 import json
 import logging
 from datetime import datetime, timedelta
@@ -66,7 +67,8 @@ class ProspectusDetail:
 class ProspectusEngine:
     """PostgreSQL uyumlu Prospektüs indirme ve işleme servisi"""
 
-    def __init__(self):
+    def __init__(self, groq_api_key: Optional[str] = None):
+        self.groq_api_key = groq_api_key
         self.timeout = aiohttp.ClientTimeout(total=30)
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"

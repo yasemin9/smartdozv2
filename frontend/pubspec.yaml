@@ -40,6 +40,9 @@ dependencies:
   # Modül 6: Sesli Asistan — Konuşmadan Metne (STT) & Metinden Konuşmaya (TTS)
   speech_to_text: ^7.0.0
   flutter_tts: ^4.2.0
+  
+  # Modül 6: Runtime permission request (mikrofon, kamera vb.)
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:

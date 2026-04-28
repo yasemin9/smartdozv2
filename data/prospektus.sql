@@ -1,4 +1,6 @@
 -- Geçici bir yükleme tablosu oluşturalım
+DROP TABLE IF EXISTS temp_csv_data;
+
 CREATE TABLE temp_csv_data (
     product_name TEXT,
     prospectus_link TEXT
@@ -6,7 +8,7 @@ CREATE TABLE temp_csv_data (
 
 -- CSV dosyasını bu tabloya bas (Dosya yolunu kendine göre güncelle)
 COPY temp_csv_data(product_name, prospectus_link)
-FROM 'C:/Users/Lenovo/Desktop/smartdozv2/data/ilac_prospektus_linkleri.csv'
+FROM 'C:/Users/Public/Downloads/ilac_prospektus_linkleri.csv'
 DELIMITER ',' 
 CSV HEADER;
 

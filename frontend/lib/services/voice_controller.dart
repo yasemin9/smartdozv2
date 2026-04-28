@@ -20,6 +20,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
@@ -110,6 +111,23 @@ class VoiceController extends ChangeNotifier {
   Future<void> init() async {
     if (_isInitialized) return;
 
+    // ── Android/iOS: Mikrofon Permission Request ────────────────
+    if (!kIsWeb) {
+      try {
+        final status = await Permission.microphone.request();
+        debugPrint('[Voice] Mikrofon izni: $status');
+        if (status.isDenied || status.isPermanentlyDenied) {
+          _sttUnavailable = true;
+          debugPrint('[Voice] ❌ Mikrofon izni reddedildi!');
+          _isInitialized = true;
+          notifyListeners();
+          return;
+        }
+      } catch (e) {
+        debugPrint('[Voice] Permission request hatası: $e');
+      }
+    }
+
     // ── TTS Konfigürasyonu ──────────────────────
     await _tts.setLanguage('tr-TR');
     await _tts.setSpeechRate(0.9);   // Doğal konuşma hızı
@@ -160,7 +178,11 @@ class VoiceController extends ChangeNotifier {
 
     if (!available) {
       _sttUnavailable = true;
-      debugPrint('[Voice] STT başlatılamadı — tarayıcı desteklemiyor olabilir.');
+      debugPrint('[Voice] STT başlatılamadı — tarayıcı/cihaz desteklemiyor olabilir.');
+      // Android/iOS'de permission sorunu olabilir
+      if (!kIsWeb) {
+        debugPrint('[Voice] İpucu: AndroidManifest.xml veya Info.plist\'te mikrofon izni tanımlı mı kontrol edin.');
+      }
     }
 
     _isInitialized = true;
@@ -173,7 +195,7 @@ class VoiceController extends ChangeNotifier {
   Future<void> startListening() async {
     if (!_isInitialized) await init();
     if (_sttUnavailable) {
-      await speak('Mikrofon erişimi sağlanamadı. Lütfen tarayıcı iznini kontrol edin.');
+      await speak('Mikrofon erişimi sağlanamadı. Lütfen uygulamaya mikrofon izni verin ve tarayıcı konsolu kontrol edin.');
       return;
     }
     if (_state == VoiceState.listening || _state == VoiceState.speaking) return;
@@ -317,13 +339,25 @@ class VoiceController extends ChangeNotifier {
   // ── STT Hata İşleyici ─────────────────────────────────────────────────────
 
   void _onSttError(SpeechRecognitionError error) {
+    final errorMsg = error.errorMsg.toLowerCase();
     debugPrint('[Voice] STT Hata: ${error.errorMsg} (kalıcı: ${error.permanent})');
 
     if (error.permanent) {
       _sttUnavailable = true;
+      // Permission denied ve diğer kalıcı hatalar
+      if (errorMsg.contains('permission') || errorMsg.contains('denied')) {
+        debugPrint('[Voice] ❌ MİKROFON İZNİ VERMEK GEREKLİ!');
+        debugPrint('[Voice] Android: AndroidManifest.xml\'de android.permission.RECORD_AUDIO var mı?');
+        debugPrint('[Voice] iOS: Info.plist\'te NSMicrophoneUsageDescription var mı?');
+      }
     }
     _setState(VoiceState.error);
-    speak('Ses tanıma hatası oluştu. Lütfen tekrar deneyin.').ignore();
+    
+    // Hata mesajını kullanıcıya göster
+    final userMessage = errorMsg.contains('permission')
+        ? 'Mikrofon izni gerekli. Lütfen uygulamaya izin verin ve tekrar deneyin.'
+        : 'Ses tanıma hatası oluştu. Lütfen tekrar deneyin.';
+    speak(userMessage).ignore();
   }
 
   // ── Düşük Güven Skoru ─────────────────────────────────────────────────────

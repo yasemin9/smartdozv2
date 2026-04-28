@@ -14,7 +14,6 @@ import 'add_medication_screen.dart';
 import 'ocr_scan_screen.dart';
 import 'voice_assistant_screen.dart';
 import 'prospectus_view_page.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart';
 
 
@@ -449,21 +448,21 @@ class _MedicationCard extends StatelessWidget {
                   // 1. Prospektüs Butonu
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () async {
+                      onPressed: () {
                         if (medication.prospectusLink != null && medication.prospectusLink!.isNotEmpty) {
-
                           String cleanUrl = medication.prospectusLink!
                               .replaceAll(RegExp(r'\s+'), '')
                               .trim();
 
-                          final uri = Uri.parse(cleanUrl);
-
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          } else {
-                            print("Açılamadı: $cleanUrl");
-                          }
-
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ProspectusViewPage(
+                                url: cleanUrl,
+                                drugName: medication.name,
+                              ),
+                            ),
+                          );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Prospektüs bulunamadı.')),

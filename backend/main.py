@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
     # 3. Modül 5 — Prospektüs Motoru: DB + Groq fallback
     # 3. Modül 5 — Prospektüs Motoru: DB + Groq fallback
     try:
-        init_prospectus_engine() # Parametreyi sildik, parantezleri kapatmayı unutma
+        init_prospectus_engine(groq_api_key=settings.GROQ_API_KEY)
         logger.info("✅ ProspectusEngine (Modül 5) başlatıldı") # Bu satır bir üsttekiyle tam aynı hizada olmalı
     except Exception as exc:
         logger.error(f"❌ ProspectusEngine başlatılamadı: {exc}")
@@ -139,8 +139,9 @@ app.add_middleware(
         "http://localhost:52000",
         "http://localhost:52001",
         "http://127.0.0.1:8080",
+        "http://10.167.158.252:8000",  # Fiziksel cihaz için IP
     ],
-    allow_origin_regex=r"http://localhost:\d+",
+    allow_origin_regex=r"http://10\.167\.158\.252:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

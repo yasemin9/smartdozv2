@@ -954,3 +954,50 @@ def summarize_medication(
     _summary_cache[key] = result
 
     return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SummarizationService Sınıfı (wrapper)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class SummarizationService:
+    """
+    İlaç prospektüsü özetleme servisi.
+    summarize_medication fonksiyonunu wrapper olarak kullanır.
+    """
+
+    def __init__(self):
+        """Servis başlatılır"""
+        logger.info("✅ SummarizationService başlatıldı")
+
+    def summarize(
+        self,
+        product_name: str,
+        description: str,
+        active_ingredient: Optional[str] = None,
+        atc_code: Optional[str] = None,
+        category: Optional[str] = None,
+        use_transformers: bool = True,
+    ) -> MedicationSummary:
+        """
+        İlaç prospektüsünü özetle.
+
+        Args:
+            product_name: İlaç adı
+            description: Ham prospektüs metni
+            active_ingredient: Etkin madde
+            atc_code: ATC kodu
+            category: Kategori
+            use_transformers: Hugging Face modeli kullan
+
+        Returns:
+            MedicationSummary: Özetlenmiş bilgi
+        """
+        return summarize_medication(
+            product_name=product_name,
+            description=description,
+            active_ingredient=active_ingredient,
+            atc_code=atc_code,
+            category=category,
+            use_transformers=use_transformers,
+        )

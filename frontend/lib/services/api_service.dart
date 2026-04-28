@@ -25,7 +25,7 @@ import '../models/user_preference.dart';
 
 /// Uygulama içinde tek bir noktada API base URL'ini yönetir.
 /// Flutter Web için backend adresi.
-const String _kBaseUrl = 'http://localhost:8000';
+const String _kBaseUrl = 'http://10.167.158.252:8000';
 const String _kTokenKey = 'smartdoz_access_token';
 
 class ApiService extends ChangeNotifier {

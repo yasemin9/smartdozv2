@@ -1,5 +1,9 @@
 <dict>
     <!-- ...existing code... -->
+    <!-- ── Modül 6: Sesli Asistan — Mikrofon İzni ─────────────────────── -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Sesli asistanı kullanabilmek için mikrofon erişimi gereklidir. İlaç sorusu sorabilirsiniz.</string>
+    
     <key>NSBonjourServices</key>
     <array>
         <string>_http._tcp</string>

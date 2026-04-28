@@ -9,7 +9,6 @@ POST /ocr/scan
 Tüm endpoint'ler JWT ile korumalıdır.
 """
 import logging
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
@@ -40,10 +39,7 @@ _MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
     status_code=status.HTTP_200_OK,
 )
 async def scan_medication_image(
-    file: Annotated[
-        UploadFile,
-        File(description="İlaç kutusu görüntüsü (JPEG / PNG / WebP, maks. 10 MB)"),
-    ],
+    file: UploadFile = File(description="İlaç kutusu görüntüsü (JPEG / PNG / WebP, maks. 10 MB)"),
     engine: str = Query(
         default="tesseract",
         description="OCR motoru: 'tesseract' (varsayılan) veya 'google_vision'",
