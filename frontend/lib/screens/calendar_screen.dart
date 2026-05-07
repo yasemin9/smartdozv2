@@ -6,6 +6,7 @@
 ///   Gecikmiş/atlandı var → kırmızı
 ///   Karışık       → turuncu
 ///   Sadece bekliyor → mavi
+library;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -203,11 +204,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
 
           // ── Renk Açıklaması
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
+              children: [
                 _LegendDot(color: Color(0xFF2E7D32), label: 'Tümü Alındı'),
                 SizedBox(width: 16),
                 _LegendDot(color: Color(0xFFC62828), label: 'Atlandı'),

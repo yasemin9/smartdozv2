@@ -2,6 +2,7 @@
 ///
 /// Kullanıcının atlanmış dozlarının saate ve haftanın gününe göre
 /// dağılımını temsil eder. Backend /analytics/behavioral-deviation yanıtıyla eşleşir.
+library;
 
 /// Saat dilimine göre atlanmış doz sayısı.
 class MissedHourSlot {

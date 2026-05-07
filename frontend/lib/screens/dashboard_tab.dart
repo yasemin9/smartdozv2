@@ -12,6 +12,7 @@
 ///   2. Hero Kart  — sıradaki ilaç (büyük, gradient)
 ///   3. Özet Şerit — Bekliyor / Alındı / Atlandı sayıları
 ///   4. Çizelge   — bugünün tüm dozları, kronolojik timeline
+library;
 
 import 'dart:async';
 
@@ -23,6 +24,7 @@ import '../models/dose_log.dart';
 import '../models/medication.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
+import 'notifications_screen.dart';
 
 // ── Yaşlı dostu renk paleti (WCAG AA uyumlu) ──────────────────────────
 const _kBg         = Color(0xFFF0F4FF);
@@ -54,6 +56,7 @@ class DashboardTabState extends State<DashboardTab>
   List<DoseLog> _cachedLogs = [];
   List<CriticalInteractionWarning> _criticalWarnings = const [];
   Timer? _notifTimer;
+  Timer? _timeoutTimer;  // Timeout kontrolü için timer
 
   @override
   void initState() {
@@ -62,11 +65,15 @@ class DashboardTabState extends State<DashboardTab>
     _loadCriticalWarnings();
     _startNotificationPolling();
     NotificationService.requestPermission();
+    
+    // Bildirim action callback'ini ayarla (took/skipped butonları için)
+    NotificationService.onNotificationAction = _handleNotificationAction;
   }
 
   @override
   void dispose() {
     _notifTimer?.cancel();
+    _timeoutTimer?.cancel();
     super.dispose();
   }
 
@@ -97,16 +104,67 @@ class DashboardTabState extends State<DashboardTab>
         final pending = await context
             .read<ApiService>()
             .getPendingNotifications();
+        final user = context.read<ApiService>().currentUser;
+        
         for (final log in pending) {
           final t = DateFormat('HH:mm').format(log.scheduledTime);
-          NotificationService.showDoseNotification(
+          NotificationService.showMissedDoseNotification(
             doseLogId: log.id,
             medicationName: log.medicationName,
+            userName: user?.firstName ?? 'Kullanıcı',
             scheduledTime: t,
           );
+          
+          // Timeout mekanizması: 5 dakika sonra otomatik "Atlandı" işaretle
+          _setupTimeoutForDose(log.id);
         }
       } catch (_) {
         // Bildirim polling kritik değil, sessizce geç
+      }
+    });
+  }
+
+  // ── Doz timeout mekanizması: 5 dakika sonra otomatik "Atlandı" işaretle
+  void _setupTimeoutForDose(int doseLogId) {
+    // Eğer zaten bu doz için timeout varsa iptal et ve yenisini kur
+    _timeoutTimer?.cancel();
+    
+    _timeoutTimer = Timer(const Duration(minutes: 5), () async {
+      // 5 dakika sonra doz hala "Bekliyor" durumunda mı kontrol et
+      try {
+        final logs = await context
+            .read<ApiService>()
+            .getDailyDoseLogs(DateTime.now());
+        
+        DoseLog? doseLog;
+        try {
+          doseLog = logs.firstWhere((l) => l.id == doseLogId);
+        } catch (_) {
+          doseLog = null;
+        }
+        
+        if (doseLog != null && doseLog.status == 'Bekliyor') {
+          // Hala "Bekliyor" durumundaysa otomatik olarak "Atlandı" işaretle
+          debugPrint('[Dashboard] Auto-marking dose $doseLogId as skipped after 5 min');
+          
+          await context
+              .read<ApiService>()
+              .updateDoseStatus(doseLogId, 'Atlandı', 
+                notes: 'Zaman aşımı - otomatik olarak atlandı');
+          
+          if (mounted) {
+            setState(_loadDoses);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⏰ İlaç zaman aşımına uğradı - Atlandı olarak işaretlendi'),
+                backgroundColor: _kWarning,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('[Dashboard] Auto-mark error: $e');
       }
     });
   }
@@ -207,12 +265,12 @@ class DashboardTabState extends State<DashboardTab>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            const Row(
               children: [
-                const Icon(Icons.psychology_rounded,
+                Icon(Icons.psychology_rounded,
                     color: _kDanger, size: 24),
-                const SizedBox(width: 8),
-                const Expanded(
+                SizedBox(width: 8),
+                Expanded(
                   child: Text(
                     'Davranışsal Sapma Analizi',
                     style: TextStyle(
@@ -296,6 +354,54 @@ class DashboardTabState extends State<DashboardTab>
         .then((_) {
       if (mounted) setState(_loadDoses);
     }).catchError((_) {});
+  }
+
+  // ── Bildirim Action Handler (took/skipped butonlarından çağrılır) ──
+  void _handleNotificationAction(String? payload, String actionId) {
+    if (payload == null) return;
+    
+    // payload format: "doseLogId|medicationName|scheduledTime"
+    final parts = payload.split('|');
+    if (parts.isEmpty) return;
+    
+    final int doseLogId = int.tryParse(parts[0]) ?? 0;
+    if (doseLogId == 0) return;
+    
+    // Action: took (aldım) veya skipped (almadım)
+    final newStatus = actionId == 'took' ? 'Alındı' : 'Atlandı';
+    
+    debugPrint('[Dashboard] Marking dose $doseLogId as $newStatus via notification');
+    
+    context
+        .read<ApiService>()
+        .updateDoseStatus(doseLogId, newStatus)
+        .then((_) {
+      if (mounted) {
+        setState(_loadDoses);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              newStatus == 'Alındı'
+                  ? '✅ İlaç alındı olarak işaretlendi'
+                  : '⚠️ İlaç atlandı olarak işaretlendi',
+            ),
+            backgroundColor:
+                newStatus == 'Alındı' ? _kSuccess : _kWarning,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }).catchError((e) {
+      debugPrint('[Dashboard] Error marking dose: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: _kDanger,
+          ),
+        );
+      }
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -454,6 +560,14 @@ class DashboardTabState extends State<DashboardTab>
         ],
       ),
       actions: [
+        IconButton(
+          icon: const Icon(Icons.notifications_rounded),
+          tooltip: 'Bildirimler',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+          ),
+        ),
         IconButton(
           icon: const Icon(Icons.refresh_rounded),
           tooltip: 'Yenile',
@@ -783,8 +897,8 @@ class _HeroNextDoseCard extends StatelessWidget {
     );
   }
 
-  Widget _buildAllDoneContent() => Column(
-        children: const [
+  Widget _buildAllDoneContent() => const Column(
+        children: [
           Text('🎉', style: TextStyle(fontSize: 48)),
           SizedBox(height: 12),
           Text(

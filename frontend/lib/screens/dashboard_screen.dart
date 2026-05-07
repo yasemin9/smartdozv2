@@ -2,6 +2,7 @@
 ///
 /// Kullanıcının ilaçlarını listeler; yenile ve sil işlemlerini
 /// destekler; Add Medication ekranına yönlendirme sağlar.
+library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -115,11 +116,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
         elevation: 0,
-        title: Row(
+        title: const Row(
           children: [
-            const Icon(Icons.medication_rounded, size: 26),
-            const SizedBox(width: 8),
-            const Text(
+            Icon(Icons.medication_rounded, size: 26),
+            SizedBox(width: 8),
+            Text(
               'SmartDoz',
               style: TextStyle(fontWeight: FontWeight.w800),
             ),

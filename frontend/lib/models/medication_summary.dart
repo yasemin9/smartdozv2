@@ -61,7 +61,7 @@ class MedicationSummary {
   });
 
   factory MedicationSummary.fromJson(Map<String, dynamic> json) {
-    List<String> _strings(dynamic raw) =>
+    List<String> strings(dynamic raw) =>
         (raw as List<dynamic>?)?.map((e) => e as String).toList() ?? [];
 
     return MedicationSummary(
@@ -73,11 +73,11 @@ class MedicationSummary {
       sideEffects: json['side_effects'] as String? ?? '',
       dosage: json['dosage'] as String? ?? '',
       warnings: json['warnings'] as String? ?? '',
-      dosageEntities: _strings(json['dosage_entities']),
-      criticalSideEffects: _strings(json['critical_side_effects']),
-      temelFaydasi: _strings(json['temel_faydasi']),
-      kullanimSekli: _strings(json['kullanim_sekli']),
-      dikkatEdilecekler: _strings(json['dikkat_edilecekler']),
+      dosageEntities: strings(json['dosage_entities']),
+      criticalSideEffects: strings(json['critical_side_effects']),
+      temelFaydasi: strings(json['temel_faydasi']),
+      kullanimSekli: strings(json['kullanim_sekli']),
+      dikkatEdilecekler: strings(json['dikkat_edilecekler']),
       summaryMethod: json['summary_method'] as String? ?? 'rule_based',
       disclaimer: json['disclaimer'] as String? ?? '',
     );

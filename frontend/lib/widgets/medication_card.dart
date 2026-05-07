@@ -1,4 +1,5 @@
 /// SmartDoz - İlaç Kartı Widget'ı
+library;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 

@@ -7,6 +7,7 @@
 ///   Bekliyor + zamanı geçmiş → kırmızı kenarlık + uyarı ikonu
 ///   Bekliyor + yaklaşıyor   → mavi kenarlık
 ///   Bekliyor + normal       → gri
+library;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -223,9 +224,9 @@ class DoseTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton.outlined(
+                  const IconButton.outlined(
                     onPressed: null,
-                    icon: const Icon(Icons.snooze_rounded, size: 18),
+                    icon: Icon(Icons.snooze_rounded, size: 18),
                     tooltip: 'Ertele',
                   ),
                 ],

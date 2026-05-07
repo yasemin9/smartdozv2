@@ -13,21 +13,75 @@
 // service sadece TTS/log için kullanılır (bildirim UI yoktur).
 
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // ── SmartDoz Bildirim Servisi ─────────────────────────────────────────
 
 class NotificationService {
   /// Oturum boyunca bildirim gönderilmiş doz log ID'leri.
-  /// Uygulama kapalıyken sıfırlanır; her açılışta yeniden bildirim gelebilir.
   static final _shownIds = <int>{};
 
   static bool _permissionRequested = false;
+  static bool _initialized = false;
+
+  // ── Push Notifications (Mobile) ────────────────────────────────
+  static late FlutterLocalNotificationsPlugin _notificationsPlugin;
 
   // ── TTS (Modül 6 entegrasyonu) ─────────────────────────────────────
-  // Ekran kilitli veya farklı sekmede olunsa bile bildirim sesli okunur.
   static final FlutterTts _tts = FlutterTts();
   static bool _ttsReady = false;
+
+  // ── Initialization ─────────────────────────────────────────────
+  
+  /// Notification action callback (global scope)
+  static Function(String? payload, String actionId)? onNotificationAction;
+  
+  /// Notification plugin'i başlat (mobile + web)
+  static Future<void> init({
+    Function(String? payload, String actionId)? onAction,
+  }) async {
+    if (_initialized) return;
+    _initialized = true;
+
+    if (kIsWeb) {
+      debugPrint('[Notif] Web platform - local notifications skip');
+      return;
+    }
+
+    // Mobile: Local notifications
+    _notificationsPlugin = FlutterLocalNotificationsPlugin();
+
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@mipmap/launcher_icon');
+
+    const DarwinInitializationSettings iosSettings =
+        DarwinInitializationSettings(
+      requestSoundPermission: true,
+      requestBadgePermission: true,
+      requestAlertPermission: true,
+    );
+
+    const InitializationSettings settings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
+
+    await _notificationsPlugin.initialize(
+      settings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        debugPrint('[Notif] Action: ${response.actionId}, Payload: ${response.payload}');
+        onNotificationAction?.call(response.payload, response.actionId ?? '');
+      },
+    );
+    
+    if (onAction != null) {
+      onNotificationAction = onAction;
+    }
+    debugPrint('[Notif] Local notifications initialized with action handler');
+  }
 
   static Future<void> _ensureTts() async {
     if (_ttsReady) return;
@@ -53,22 +107,166 @@ class NotificationService {
 
   // ── İzin ─────────────────────────────────────────────────────────
 
-  /// Tarayıcıdan bildirim izni ister. Sadece bir kez çalışır.
-  /// Web'de tarayıcı izni ister, mobile'de no-op.
-  static Future<void> requestPermission() async {
-    if (!kIsWeb || _permissionRequested) return;
+  /// İşletim sisteminden bildirim izni ister (permission_handler paketi ile)
+  static Future<bool> requestPermission() async {
+    if (kIsWeb) return true;
+
+    if (_permissionRequested) return true;
     _permissionRequested = true;
 
-    // Web-only: Tarayıcı Notification API izni
-    // Mobile'de bu kod asla çalışmaz (kIsWeb = false)
+    // Android 13+ ve iOS: Notification izni iste
+    final status = await Permission.notification.request();
+    
+    final granted = status.isGranted || status.isDenied;
+    debugPrint('[Notif] Notification permission: $status');
+    
+    return granted;
+  }
+
+  // ── Push Notification gösterme ────────────────────────────────
+
+  /// Atlanmış ilaç bildirimi göster (sistem tray) — action butonları ile
+  static Future<void> showMissedDoseNotification({
+    required int doseLogId,
+    required String medicationName,
+    required String userName,
+    required String scheduledTime,
+  }) async {
+    if (kIsWeb) {
+      debugPrint('[Notif] Web: Missed dose notification (web only shows TTS)');
+      await announceViaTts(
+        medicationName: medicationName,
+        scheduledTime: scheduledTime,
+      );
+      return;
+    }
+
+    final String title = '⚠️ İlaç Atlandı: $medicationName';
+    final String body = '$userName saat $scheduledTime\'de $medicationName alınması gerekirken almadı.';
+    
+    // Payload: doz bilgisi (JSON string olarak)
+    final String payload = '$doseLogId|$medicationName|$scheduledTime';
+
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'smartdoz_missed_dose',
+      'Atlanmış İlaç Bildirimleri',
+      importance: Importance.max,
+      priority: Priority.high,
+      enableVibration: true,
+      enableLights: true,
+      sound: RawResourceAndroidNotificationSound('notification_sound'),
+      ticker: '⚠️ İlaç Atlandı',
+      actions: <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'took',
+          'Aldım',
+          titleColor: Color.fromARGB(255, 46, 125, 50), // green
+          showsUserInterface: true,
+        ),
+        AndroidNotificationAction(
+          'skipped',
+          'Almadım',
+          titleColor: Color.fromARGB(255, 198, 40, 40), // red
+          showsUserInterface: true,
+        ),
+      ],
+    );
+
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      sound: 'notification_sound.caf',
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      threadIdentifier: 'missed_dose_thread',
+    );
+
+    final NotificationDetails notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notificationsPlugin.show(
+      doseLogId,
+      title,
+      body,
+      notificationDetails,
+      payload: payload,
+    );
+
+    debugPrint('[Notif] Missed dose shown: $medicationName (ID: $doseLogId)');
+  }
+
+  /// Genel bildirim göster
+  static Future<void> showNotification({
+    required int id,
+    required String title,
+    required String body,
+    bool enableVibration = true,
+    bool enableSound = true,
+  }) async {
+    if (kIsWeb) {
+      debugPrint('[Notif] Web: $title - $body');
+      return;
+    }
+
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'smartdoz_general',
+      'SmartDoz Bildirimleri',
+      importance: Importance.high,
+      priority: Priority.high,
+      enableVibration: true,
+      sound: RawResourceAndroidNotificationSound('notification_sound'),
+    );
+
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      sound: 'notification_sound.caf',
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const NotificationDetails notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notificationsPlugin.show(
+      id,
+      title,
+      body,
+      notificationDetails,
+    );
+
+    debugPrint('[Notif] Notification shown: $title');
+  }
+
+  // ── Bildirim iptaline ────────────────────────────────────────
+
+  /// Belirli bir bildirim ID'sini iptal et
+  static Future<void> cancelNotification(int id) async {
+    if (kIsWeb) return;
     try {
-      debugPrint('[Notif] Web: Tarayıcı izni istendi');
+      await _notificationsPlugin.cancel(id);
+      debugPrint('[Notif] Cancelled: $id');
     } catch (e) {
-      debugPrint('[Notif] İzin isteği başarısız: $e');
+      debugPrint('[Notif] Cancel failed: $e');
     }
   }
 
-  // ── Yeni Doz Bildirimi ────────────────────────────────────────────
+  /// Tüm bildirimleri iptal et
+  static Future<void> cancelAllNotifications() async {
+    if (kIsWeb) return;
+    try {
+      await _notificationsPlugin.cancelAll();
+      debugPrint('[Notif] All notifications cancelled');
+    } catch (e) {
+      debugPrint('[Notif] Cancel all failed: $e');
+    }
+  }
+
+  // ── Yeni Doz Bildirimi (Eski sistem - Web + TTS uyumlu) ─────────
 
   /// Backend /notifications/pending endpoint'inden gelen dozlar için bildirim.
   /// Aynı [doseLogId] için tekrar bildirim göstermez.

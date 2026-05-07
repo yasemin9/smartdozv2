@@ -653,8 +653,8 @@ class _SmartTipsSection extends StatelessWidget {
               color: const Color(0xFFF57F17),
             ),
             const SizedBox(height: 4),
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 10),
+            const Padding(
+              padding: EdgeInsets.only(left: 4, bottom: 10),
               child: Text(
                 'Sistem sizi gözlemliyor ve öneriyor — tüm kararlar size ait.',
                 style: TextStyle(

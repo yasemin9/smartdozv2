@@ -188,8 +188,8 @@ class _DecisionNotificationCardState
                       width: 28,
                       height: 28,
                       child: _dismissing
-                          ? Padding(
-                              padding: const EdgeInsets.all(6),
+                          ? const Padding(
+                              padding: EdgeInsets.all(6),
                               child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: Colors.black38),
@@ -251,12 +251,12 @@ class _DecisionNotificationCardState
 
             // ── Sadece Öneri Etiketi ──────────────────────────
             const SizedBox(height: 10),
-            Row(
+            const Row(
               children: [
                 Icon(Icons.info_outline_rounded,
                     size: 13, color: Colors.black38),
-                const SizedBox(width: 4),
-                const Text(
+                SizedBox(width: 4),
+                Text(
                   'Bu bir öneridir — tüm kararlar size aittir.',
                   style: TextStyle(fontSize: 11, color: Colors.black38),
                 ),

@@ -139,7 +139,7 @@ class VoiceController extends ChangeNotifier {
       final voices = await _tts.getVoices;
       if (voices is List) {
         // Google TR sesi önce, sonra herhangi bir tr-TR sesi
-        final preferred = (voices as List<dynamic>).cast<Map>().where((v) {
+        final preferred = (voices).cast<Map>().where((v) {
           final name   = (v['name']   as String? ?? '').toLowerCase();
           final locale = (v['locale'] as String? ?? '').toLowerCase();
           return locale.startsWith('tr');

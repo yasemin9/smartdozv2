@@ -4,6 +4,10 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>Sesli asistanı kullanabilmek için mikrofon erişimi gereklidir. İlaç sorusu sorabilirsiniz.</string>
     
+    <!-- ── Bildirim İzni ─────────────────────────────────────────────────── -->
+    <key>UIUserInterfaceStyle</key>
+    <string>Light</string>
+    
     <key>NSBonjourServices</key>
     <array>
         <string>_http._tcp</string>

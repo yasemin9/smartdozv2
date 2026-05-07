@@ -2,6 +2,7 @@
 ///
 /// Kullanıcı bilgileri, 30 günlük uyum skoru, uygulama ayarları,
 /// kurumsal hakkında bölümü ve çıkış.
+library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +10,8 @@ import '../services/api_service.dart';
 import 'adherence_screen.dart';
 import 'login_screen.dart';
 import 'preferences_screen.dart';
+import 'caregiver_management_screen.dart';
+import 'notifications_screen.dart';
 
 // ── Renk sabitleri ─────────────────────────────────────────────────
 const _kPrimary  = Color(0xFF1565C0);
@@ -140,6 +143,34 @@ class _ProfileTabState extends State<ProfileTab> {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const AdherenceScreen()),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          _SettingsTile(
+            icon: Icons.people_rounded,
+            iconColor: Colors.teal,
+            title: 'Bakıcı Yönetimi',
+            subtitle:
+                'Aileniz veya doktor için bildirim alıcıları ekleyin/yönetin',
+            semanticLabel: 'Bakıcı yönetimini aç',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CaregiverManagementScreen()),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          _SettingsTile(
+            icon: Icons.notifications_rounded,
+            iconColor: Colors.deepOrange,
+            title: 'Bildirimler',
+            subtitle:
+                'İlaç atlanması ve diğer bildirimleri görüntüleyin',
+            semanticLabel: 'Bildirimleri görüntüle',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const NotificationsScreen()),
             ),
           ),
 

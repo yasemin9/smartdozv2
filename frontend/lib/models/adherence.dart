@@ -1,4 +1,5 @@
 /// SmartDoz - Modül 7: Tedavi Uyumu Modelleri
+library;
 
 /// Bir haftaya ait uyum verisi (fl_chart LineChart için kullanılır).
 class WeeklyTrendPoint {

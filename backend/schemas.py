@@ -491,6 +491,50 @@ class OCRScanResponse(BaseModel):
     candidates: List[OCRMatchCandidate]
 
 
+# ──────────────────────────────────────────────────────
+# Modül 4 — Barkod Okuma ve Eşleştirme Şemaları
+# ──────────────────────────────────────────────────────
+
+class BarcodeScanRequest(BaseModel):
+    """Barkod okuma isteği."""
+    fallback_to_ocr: bool = Field(
+        default=True,
+        description="Barkod bulunamadıysa OCR ile tekrar dene (True/False)"
+    )
+
+
+class BarcodeMatchResult(BaseModel):
+    """
+    Barkod eşleştirme sonucu.
+    
+    Alanlar:
+        found:           Barkod bulundu mu (kesin eşleşme).
+        barcode:         Okunan barkod değeri.
+        medication_id:   Eşleşen ilaç ID'si (varsa).
+        medication_name: Eşleşen ilaç adı (varsa).
+        confidence:      1.0 (kesin), <1.0 (fuzzy match).
+        message:         Hata/bilgi mesajı.
+    """
+    found: bool
+    barcode: str
+    medication_id: Optional[int] = None
+    medication_name: Optional[str] = None
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    message: str = ""
+
+
+class BarcodeWithOCRFallback(BarcodeMatchResult):
+    """
+    Barkod bulunamadıysa OCR sonuçlarını içeren yanıt.
+    
+    Alanlar:
+        ocr_fallback_used: OCR'ye geri dönüldü mü.
+        ocr_candidates:    OCR'dan bulunan aday ilaçlar.
+    """
+    ocr_fallback_used: bool = False
+    ocr_candidates: List[OCRMatchCandidate] = []
+
+
 # (Bu satırları var olan schemas.py'ye ekle)
 
 from pydantic import BaseModel
@@ -520,3 +564,77 @@ class ProspectusDetailResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ──────────────────────────────────────────────────────
+# Modül 2 — Bakıcı (Caregiver) Şemaları
+# ──────────────────────────────────────────────────────
+
+class CaregiverCreate(BaseModel):
+    """Yeni bakıcı ilişkisi oluştur."""
+    caregiver_email: EmailStr
+    relationship_type: str = "caregiver"  # parent, child, spouse, doctor, caregiver
+
+
+class CaregiverResponse(BaseModel):
+    """Bakıcı ilişkisinin yanıtı."""
+    id: int
+    user_id: int
+    caregiver_user_id: int
+    caregiver_name: Optional[str] = None  # Bakıcının adı (ilişkide döndürülür)
+    caregiver_email: Optional[str] = None  # Bakıcının email'i
+    relationship_type: str
+    is_active: bool
+    created_at: datetime
+    
+    model_config = {"from_attributes": True}
+
+
+class CaregiverUpdate(BaseModel):
+    """Bakıcı ilişkisi güncelleme."""
+    is_active: Optional[bool] = None
+    relationship_type: Optional[str] = None
+
+
+# ──────────────────────────────────────────────────────
+# Modül 2 — Bildirim Şemaları
+# ──────────────────────────────────────────────────────
+
+class NotificationResponse(BaseModel):
+    """Bildirim yanıtı."""
+    id: int
+    user_id: int
+    user_name: Optional[str] = None  # Kim için bildirim (ilacı kullanan)
+    caregiver_id: int
+    dose_log_id: Optional[int] = None
+    medication_id: Optional[int] = None
+    medication_name: Optional[str] = None
+    
+    notification_type: str  # MISSED_DOSE, OVERDOSE, EXPIRY, etc
+    title: str
+    message: str
+    
+    is_read: bool
+    read_at: Optional[datetime] = None
+    created_at: datetime
+    
+    model_config = {"from_attributes": True}
+
+
+class NotificationListResponse(BaseModel):
+    """Bildirim listesi yanıtı (sayfalanmış)."""
+    total: int
+    unread_count: int
+    notifications: List[NotificationResponse]
+
+
+class NotificationMarkRead(BaseModel):
+    """Bildirim okundu işareti."""
+    notification_ids: List[int]
+    
+    @field_validator("notification_ids")
+    @classmethod
+    def validate_ids(cls, v: List[int]) -> List[int]:
+        if not v:
+            raise ValueError("En az bir bildirim ID'si gerekli")
+        return v

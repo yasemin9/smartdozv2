@@ -11,7 +11,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/medication_summary.dart';
-import '../models/ocr_result.dart';
+import '../models/barcode_result.dart';
 
 import '../models/dose_log.dart';
 import '../models/global_medication.dart';
@@ -22,10 +22,12 @@ import '../models/ai_decision.dart';
 import '../models/smart_tip.dart';
 import '../models/user.dart';
 import '../models/user_preference.dart';
+import '../models/caregiver.dart';
+import '../models/notification.dart';
 
 /// Uygulama içinde tek bir noktada API base URL'ini yönetir.
 /// Flutter Web için backend adresi.
-const String _kBaseUrl = 'http://10.167.158.252:8000';
+const String _kBaseUrl = 'http://10.37.197.252:8000';
 const String _kTokenKey = 'smartdoz_access_token';
 
 class ApiService extends ChangeNotifier {
@@ -530,12 +532,12 @@ class ApiService extends ChangeNotifier {
     throw const ApiException('Akıllı ipuçları yüklenemedi.');
   }
 
-  // ────────────────────────────────────────────────────  // Modül 4 — OCR İlaç Tanıma
+  // ────────────────────────────────────────────────────  // Modül 4 — Barkod İlaç Tanıma (Geliştirilmiş)
   // ────────────────────────────────────────────────
 
-  /// İlaç kutusu görüntüsünü backend'e gönderir;
-  /// Algoritma 3 (Levenshtein) üzerinden benzerlik ≥ %85 adayları döndürür.
-  Future<OcrScanResult> scanMedication({
+  /// İlaç kutusunun barkodunu tarar ve otomatik eşleştirme yapar.
+  /// Yalnızca barkod üzerinden eşleştirme (OCR devre dışı).
+  Future<BarcodeMatchResult> scanMedication({
     required Uint8List imageBytes,
     required String fileName,
     required String mimeType,
@@ -544,7 +546,7 @@ class ApiService extends ChangeNotifier {
       throw const ApiException('Oturum bulunamadı. Lütfen giriş yapın.');
     }
 
-    final uri = Uri.parse('$_kBaseUrl/ocr/scan');
+    final uri = Uri.parse('$_kBaseUrl/barcode/scan');
     final request = http.MultipartRequest('POST', uri)
       ..headers['Authorization'] = 'Bearer $_token'
       ..files.add(
@@ -563,7 +565,7 @@ class ApiService extends ChangeNotifier {
 
     if (response.statusCode == 200) {
       if (bodyStr.isEmpty) throw const ApiException('Sunucudan boş yanıt alındı.');
-      return OcrScanResult.fromJson(
+      return BarcodeMatchResult.fromJson(
           jsonDecode(bodyStr) as Map<String, dynamic>);
     }
     if (response.statusCode == 401) await _handleUnauthorized();
@@ -646,7 +648,7 @@ class ApiService extends ChangeNotifier {
     }
     
     if (response.statusCode == 404) {
-      throw ApiException("${drugName} ilacı için prospektüs bulunamadı.");
+      throw ApiException("$drugName ilacı için prospektüs bulunamadı.");
     }
     
     throw ApiException(_extractDetail(_parseBody(response)));
@@ -722,6 +724,130 @@ class ApiService extends ChangeNotifier {
       // Ağ hatası → kural motoruna düş
     }
     return const VoiceAIResult(answer: null, source: 'fallback');
+  }
+
+  // ────────────────────────────────────────────────────
+  // Modül 2 — Bakıcı Yönetimi (Caregiver Management)
+  // ────────────────────────────────────────────────────
+
+  /// Mevcut bakıcı listesini getir
+  Future<List<Caregiver>> getCaregivers() async {
+    final response = await http.get(
+      Uri.parse('$_kBaseUrl/caregivers-notifications/caregivers'),
+      headers: _authHeaders,
+    );
+
+    if (response.statusCode == 200) {
+      final list = _parseBody(response) as List<dynamic>;
+      return list
+          .map((e) => Caregiver.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Bakıcılar yüklenemedi.');
+  }
+
+  /// Yeni bakıcı ekle (email üzerinden)
+  Future<Caregiver> addCaregiver({
+    required String caregiverEmail,
+    String relationshipType = 'caregiver',
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_kBaseUrl/caregivers-notifications/caregivers'),
+      headers: _authHeaders,
+      body: jsonEncode({
+        'caregiver_email': caregiverEmail,
+        'relationship_type': relationshipType,
+      }),
+    );
+
+    if (response.statusCode == 201) {
+      return Caregiver.fromJson(
+          _parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
+  /// Bakıcıyı güncelle
+  Future<Caregiver> updateCaregiver(
+    int caregiverRelId, {
+    bool? isActive,
+    String? relationshipType,
+  }) async {
+    final body = <String, dynamic>{};
+    if (isActive != null) body['is_active'] = isActive;
+    if (relationshipType != null) body['relationship_type'] = relationshipType;
+
+    final response = await http.patch(
+      Uri.parse('$_kBaseUrl/caregivers-notifications/caregivers/$caregiverRelId'),
+      headers: _authHeaders,
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode == 200) {
+      return Caregiver.fromJson(
+          _parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
+  /// Bakıcıyı sil
+  Future<void> removeCaregiver(int caregiverRelId) async {
+    final response = await http.delete(
+      Uri.parse('$_kBaseUrl/caregivers-notifications/caregivers/$caregiverRelId'),
+      headers: _authHeaders,
+    );
+
+    if (response.statusCode == 204) {
+      return;
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
+  }
+
+  // ────────────────────────────────────────────────────
+  // Modül 2 — Bildirim Yönetimi (Notification Management)
+  // ────────────────────────────────────────────────────
+
+  /// Bildirimleri listele (sayfalanmış)
+  Future<NotificationList> getNotifications({
+    int skip = 0,
+    int limit = 20,
+    bool unreadOnly = false,
+  }) async {
+    final uri = Uri.parse('$_kBaseUrl/caregivers-notifications/list').replace(
+      queryParameters: {
+        'skip': skip.toString(),
+        'limit': limit.toString(),
+        'unread_only': unreadOnly.toString(),
+      },
+    );
+
+    final response = await http.get(uri, headers: _authHeaders);
+
+    if (response.statusCode == 200) {
+      return NotificationList.fromJson(
+          _parseBody(response) as Map<String, dynamic>);
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Bildirimler yüklenemedi.');
+  }
+
+  /// Bildirimleri okundu işaretle
+  Future<void> markNotificationsAsRead(List<int> notificationIds) async {
+    final response = await http.post(
+      Uri.parse('$_kBaseUrl/caregivers-notifications/mark-read'),
+      headers: _authHeaders,
+      body: jsonEncode({'notification_ids': notificationIds}),
+    );
+
+    if (response.statusCode == 200) {
+      return;
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw ApiException(_extractDetail(_parseBody(response)));
   }
 }
 

@@ -1,12 +1,12 @@
-// SmartDoz — Modül 4: OCR Destekli Otomatik İlaç Tanıma Ekranı
+// SmartDoz — Modül 4: Barkod Destekli Otomatik İlaç Tanıma Ekranı
 //
 // Pipeline (UI tarafı):
 //   1. Kullanıcı "Kamera ile Tara" veya "Galeriden Seç" butonuna basar.
 //   2. image_picker ile görüntü alınır ve önizleme gösterilir.
 //   3. "Analiz Et" butonuna basılınca görüntü backend'e yüklenir.
-//   4. Backend Levenshtein (Algoritma 3) eşleştirmesini yapar ve aday listesi döner.
-//   5. Kullanıcı onay modal'ından bir adayı seçer.
-//   6. Seçilen ilaç adı AddMedicationScreen'e pre-fill olarak iletilir.
+//   4. Backend barkodu okur ve veritabanında kesin eşleştirme yapar.
+//   5. Başarılı: İlaç adıyla AddMedicationScreen'e git.
+//   6. Başarısız: Hata mesajı göster, elle ilaç ekleme seçeneği sun.
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -14,7 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
-import '../models/ocr_result.dart';
+import '../models/barcode_result.dart';
 import '../services/api_service.dart';
 import 'add_medication_screen.dart';
 
@@ -42,8 +42,7 @@ class _OcrScanScreenState extends State<OcrScanScreen> {
   String? _imageMimeType;
 
   bool _isLoading = false;
-  OcrScanResult? _result;
-  String? _errorMessage;
+  BarcodeMatchResult? _result;
 
   // ── Görüntü seçimi ─────────────────────────────────────────────────────────
 
@@ -100,16 +99,12 @@ class _OcrScanScreenState extends State<OcrScanScreen> {
     return 'image/jpeg';
   }
 
-  // ── OCR analizi ─────────────────────────────────────────────────────────────
+  // ── Barkod analizi ─────────────────────────────────────────────────────────
 
   Future<void> _analyzeImage() async {
     if (_imageBytes == null) return;
 
-    setState(() {
-      _isLoading = true;
-      _result = null;
-      _errorMessage = null;
-    });
+    setState(() => _isLoading = true);
 
     try {
       final api = context.read<ApiService>();
@@ -121,15 +116,38 @@ class _OcrScanScreenState extends State<OcrScanScreen> {
 
       setState(() => _result = result);
 
-      if (!result.hasMatches) {
-        final ocrInfo = result.ocrRawText.isNotEmpty
-            ? 'OCR okunan metin: "${result.ocrRawText}"'
-            : 'OCR hiç metin okuyamadı — görüntüyü netleştirip tekrar deneyin.';
-        _showError('Veritabanında eşleşen ilaç bulunamadı.\n$ocrInfo');
-        return;
+      if (result.found && result.medicationName != null) {
+        // ✅ Başarılı — ilaç bulundu
+        if (mounted) {
+          _showSuccess('✅ ${result.message}');
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => AddMedicationScreen(
+                  prefillName: result.medicationName!,
+                ),
+              ),
+            );
+          }
+        }
+      } else {
+        // ❌ Başarısız — ilaç bulunamadı
+        _showErrorDialog(
+          title: 'Barkod Okunamadı',
+          message: result.message,
+          onAddManually: () {
+            Navigator.pop(context);
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AddMedicationScreen(),
+              ),
+            );
+          },
+        );
       }
-
-      if (mounted) _showCandidatesSheet(result);
     } on ApiException catch (e) {
       _showError(e.message);
     } catch (e) {
@@ -139,35 +157,20 @@ class _OcrScanScreenState extends State<OcrScanScreen> {
     }
   }
 
-  // ── Aday onay modal'ı (Algoritma 3 sonuçları) ─────────────────────────────
-
-  void _showCandidatesSheet(OcrScanResult result) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _CandidatesBottomSheet(
-        result: result,
-        onSelect: (name) {
-          Navigator.pop(ctx);
-          _navigateToAdd(name);
-        },
-      ),
-    );
-  }
-
-  void _navigateToAdd(String medicationName) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AddMedicationScreen(prefillName: medicationName),
+  void _showSuccess(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: _kSuccess,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
       ),
     );
   }
 
   void _showError(String msg) {
     if (!mounted) return;
-    setState(() => _errorMessage = msg);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
@@ -175,6 +178,37 @@ class _OcrScanScreenState extends State<OcrScanScreen> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  void _showErrorDialog({
+    required String title,
+    required String message,
+    required VoidCallback onAddManually,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          title,
+          style: const TextStyle(color: _kDanger, fontWeight: FontWeight.bold),
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Geri'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              onAddManually();
+            },
+            icon: const Icon(Icons.add),
+            label: const Text('Elle Ekle'),
+          ),
+        ],
       ),
     );
   }
@@ -482,7 +516,7 @@ class _CandidatesBottomSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Text(
+          const Text(
             'Algoritma 3 (Levenshtein) ile bulunan adaylar.\n'
             'Doğru ilacı seçerek formu otomatik doldurun.',
             style: TextStyle(

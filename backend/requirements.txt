@@ -25,6 +25,8 @@ rapidfuzz>=3.5.0
 # Modül 4: OCR — Görüntü İşleme ve Metin Tanıma
 opencv-python-headless>=4.9.0
 pytesseract>=0.3.10
+# Modül 4: Barkod Okuma ve Eşleştirme
+pyzbar>=0.1.9
 # Modül 4: Alternatif OCR — Google Cloud Vision (isteğe bağlı)
 # google-cloud-vision>=3.7.0
 # Modül 5: YZ Tabanlı İlaç Özetleme — Hugging Face Transformers

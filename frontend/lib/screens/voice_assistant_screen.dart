@@ -343,7 +343,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
         return;
       }
     } else if (_rNo.hasMatch(norm)) {
-      final msg = 'Tamam, işlem iptal edildi.';
+      const msg = 'Tamam, işlem iptal edildi.';
       _push(_Msg(_MsgSource.ai, msg));
       await _ctrl.speak(msg);
     } else {
@@ -391,7 +391,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
     final api = context.read<ApiService>();
     final medName = _pendingMedicationName ?? 'İlaç';
     if (_pendingMedicationId == null) {
-      final msg = 'Silmek istediğiniz ilacı bulamadım. İlaç adını daha açık belirtin.';
+      const msg = 'Silmek istediğiniz ilacı bulamadım. İlaç adını daha açık belirtin.';
       _push(_Msg(_MsgSource.ai, msg));
       await _ctrl.speak(msg);
       return;
@@ -429,7 +429,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   Future<void> _wizardStart(String? medName) async {
     _wizardReset();
     if (medName == null || medName.isEmpty) {
-      final msg = 'Eklemek istediğiniz ilacın adını söyleyin.';
+      const msg = 'Eklemek istediğiniz ilacın adını söyleyin.';
       _push(_Msg(_MsgSource.ai, msg));
       await _ctrl.speak(msg);
       setState(() => _wizardStep = _WizardStep.searchResults);
@@ -1610,7 +1610,7 @@ class _MedCandidateCard extends StatelessWidget {
                 Container(
                   width: 20,
                   height: 20,
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                       color: _kPrimary, shape: BoxShape.circle),
                   child: Center(
                     child: Text(

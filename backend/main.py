@@ -27,6 +27,7 @@ from core.config import settings
 from routers import (
     analytics, 
     ai_interventions, 
+    barcode,
     calendar, 
     dose_logs, 
     interactions, 
@@ -37,7 +38,8 @@ from routers import (
     prospectus,  # ← EKLE
     summarize, 
     users, 
-    voice
+    voice,
+    caregivers_notifications,  # ← MODÜL 2: Bakıcı ve Bildirim Yönetimi
 )
 from services.decision_engine import decision_engine as ai_decision_engine
 from services.interaction_engine import interaction_engine
@@ -153,6 +155,7 @@ app.include_router(medications.router)
 app.include_router(interactions.router)
 app.include_router(analytics.router)
 app.include_router(ocr.router)
+app.include_router(barcode.router)
 app.include_router(calendar.router)
 app.include_router(dose_logs.router)
 app.include_router(preferences.router)
@@ -161,6 +164,7 @@ app.include_router(ai_interventions.router)
 app.include_router(summarize.router)
 app.include_router(voice.router)
 app.include_router(prospectus.router)  # ← EKLE
+app.include_router(caregivers_notifications.router)  # ← MODÜL 2: Bakıcı ve Bildirim Yönetimi
 
 
 @app.get("/health", tags=["Sistem"])

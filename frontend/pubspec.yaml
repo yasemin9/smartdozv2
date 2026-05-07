@@ -44,6 +44,9 @@ dependencies:
   # Modül 6: Runtime permission request (mikrofon, kamera vb.)
   permission_handler: ^11.3.1
 
+  # Bildirim Sistemi (Android + iOS sistem tray)
+  flutter_local_notifications: ^17.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

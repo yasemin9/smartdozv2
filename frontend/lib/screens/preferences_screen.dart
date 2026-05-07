@@ -3,6 +3,7 @@
 /// Kullanıcı uyanma ve uyuma saatlerini belirler.
 /// Bu değerler Zaman Dilimi Hesapla algoritmasının girdilerini oluşturur
 /// (EK1_revize.pdf, Sayfa 37).
+library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -183,7 +184,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                   const SizedBox(height: 16),
 
                   // ── Uyku / Uyanma saatleri
-                  _SectionTitle(title: 'Günlük Program'),
+                  const _SectionTitle(title: 'Günlük Program'),
                   const SizedBox(height: 16),
                   _TimePicker(
                     label: 'Uyanma Saati',
@@ -203,7 +204,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                   const SizedBox(height: 24),
 
                   // ── Günlük Rutin Saatler
-                  _SectionTitle(title: 'Günlük Rutin (İlaç Saatleri İçin)'),
+                  const _SectionTitle(title: 'Günlük Rutin (İlaç Saatleri İçin)'),
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -212,11 +213,11 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0xFFFFCC02), width: 1),
                     ),
-                    child: Row(
+                    child: const Row(
                       children: [
-                        const Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFFF57F17)),
-                        const SizedBox(width: 10),
-                        const Expanded(
+                        Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFFF57F17)),
+                        SizedBox(width: 10),
+                        Expanded(
                           child: Text(
                             '"Yemekten önce/sonra", "Sabah", "Yatmadan önce" gibi seçenekler '
                             'bu saatler kullanılarak hesaplanır. Tanımlamadığınız saatler için '

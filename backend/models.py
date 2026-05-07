@@ -306,3 +306,116 @@ class ProspectusUserReading(Base):
     
     def __repr__(self):
         return f"<ProspectusUserReading(user_id={self.user_id}, prospectus_id={self.prospectus_id})>"
+
+
+class CaregiverRelationship(Base):
+    """
+    Modül 2 (Bildirim Sistemi) — Bakıcı/İlişkili Kişiler
+    
+    user_id: İlaç kullanan kişi
+    caregiver_user_id: Uyarı almak isteyen kişi (aile üyesi, doktor, bakıcı)
+    
+    Örnek:
+        user_id=1 (Anne) → caregiver_user_id=2 (Kızı)
+        Kızının ilacı atladığında kız bildirim alır
+    """
+    __tablename__ = "caregiver_relationships"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    caregiver_user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    # İlişki tipi: parent, child, spouse, doctor, caregiver, vb
+    relationship_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="caregiver"
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    
+    # İlişkiler
+    user: Mapped["User"] = relationship(
+        "User", foreign_keys=[user_id], viewonly=True
+    )
+    caregiver: Mapped["User"] = relationship(
+        "User", foreign_keys=[caregiver_user_id], viewonly=True
+    )
+    
+    __table_args__ = (
+        UniqueConstraint("user_id", "caregiver_user_id", name="uq_caregiver_rel"),
+        CheckConstraint("user_id != caregiver_user_id", name="no_self_caregiver"),
+    )
+    
+    def __repr__(self) -> str:
+        return (
+            f"<CaregiverRelationship user_id={self.user_id} "
+            f"caregiver={self.caregiver_user_id} type={self.relationship_type!r}>"
+        )
+
+
+class Notification(Base):
+    """
+    Modül 2 (Bildirim Sistemi) — İlaç Bildirimleri
+    
+    user_id: İlaç kullanan kişi (Kim için bildirim?)
+    caregiver_id: Bildirim alacak kişi (Kime gidiyor?)
+    dose_log_id: İlgili doz (İlaca dair)
+    
+    Bildirim tipleri:
+        MISSED_DOSE  — İlaç alınmadı (Atlandı)
+        OVERDOSE     — Aşırı doz tespit edildi
+        EXPIRY       — İlaç son kat. sonunda
+        INTERACTION  — İlaç etkileşimi uyarısı
+    """
+    __tablename__ = "notifications"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    caregiver_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    dose_log_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("dose_logs.id", ondelete="SET NULL"),
+        nullable=True, index=True
+    )
+    medication_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("medications.id", ondelete="SET NULL"),
+        nullable=True, index=True
+    )
+    
+    notification_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    
+    # İlişkiler
+    dose_log: Mapped[Optional["DoseLog"]] = relationship("DoseLog", viewonly=True)
+    medication: Mapped[Optional["Medication"]] = relationship("Medication", viewonly=True)
+    
+    def __repr__(self) -> str:
+        return (
+            f"<Notification id={self.id} type={self.notification_type!r} "
+            f"caregiver_id={self.caregiver_id} is_read={self.is_read}>"
+        )

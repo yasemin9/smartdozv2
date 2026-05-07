@@ -2,6 +2,7 @@
 ///
 /// fl_chart LineChart ile son 30 günün haftalık MPR skorunu
 /// interaktif ve vektörel olarak gösterir.
+library;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -901,7 +902,7 @@ class _BehavioralDeviationSection extends StatelessWidget {
 
           // ── Saat analizi ──────────────────────────
           if (deviation.missedByHour.isNotEmpty) ...[
-            _SectionHeader(
+            const _SectionHeader(
               icon: Icons.access_time_rounded,
               title: 'Aksatılan Dozların Zaman Analizi',
               subtitle: 'En çok aksatılan saat dilimleri (büyükten küçüğe)',
@@ -916,7 +917,7 @@ class _BehavioralDeviationSection extends StatelessWidget {
 
           // ── Gün analizi ───────────────────────────
           if (deviation.missedByDay.isNotEmpty) ...[
-            _SectionHeader(
+            const _SectionHeader(
               icon: Icons.calendar_today_rounded,
               title: 'Haftanın En Riskli Günleri',
               subtitle: 'Günlere göre aksatma dağılımı',

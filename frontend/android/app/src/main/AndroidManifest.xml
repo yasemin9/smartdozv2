@@ -2,6 +2,10 @@
     <!-- ── Modül 6: Sesli Asistan — Mikrofon İzni ────────────────────────── -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- ── Bildirim İzni (Android 13+) ─────────────────────────────────────── -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ── Cihaz başlamada çalıştır (opsiyonel, arka plan bildirimleri için) ── -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     
     <application
         android:label="smartdoz"

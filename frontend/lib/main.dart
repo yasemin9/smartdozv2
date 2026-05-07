@@ -2,6 +2,7 @@
 ///
 /// Provider ile ApiService global durumu sağlar.
 /// Oturum durumuna göre Login veya Dashboard ekranı gösterilir.
+library;
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
@@ -9,11 +10,17 @@ import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/api_service.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Türkçe tarih formatı için intl locale başlatması
   await initializeDateFormatting('tr_TR', null);
+  
+  // Notification servisini başlat (action handler callback'i dashboard'da eklenecek)
+  await NotificationService.init();
+  // Notification izni iste (mobile)
+  await NotificationService.requestPermission();
   runApp(
     ChangeNotifierProvider(
       create: (_) => ApiService(),

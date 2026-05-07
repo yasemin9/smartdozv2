@@ -8,6 +8,7 @@
 ///   - NER ile tespit edilen kritik yan etkiler vurgulanır
 ///   - AI sorumluluk reddi her zaman gösterilir
 ///   - Kart-tabanlı, okunabilir tipografi ile
+library;
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:provider/provider.dart';

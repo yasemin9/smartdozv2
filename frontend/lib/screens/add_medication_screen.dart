@@ -1,4 +1,5 @@
 /// SmartDoz - İlaç Ekleme Formu
+library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -121,7 +122,7 @@ class _DoseSlot {
   String label;          // 'Sabah', 'Öğle', vb.
   TimeOfDay? overrideTime; // null → preset varsayılanı kullan
 
-  _DoseSlot(this.label, [this.overrideTime]);
+  _DoseSlot(this.label);
 
   TimeOfDay get effectiveTime =>
       overrideTime ?? kLabelPresets[label]?.defaultTime ?? const TimeOfDay(hour: 8, minute: 0);
@@ -978,7 +979,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     String? Function(T?)? validator,
   }) =>
       DropdownButtonFormField<T>(
-        value: value,
+        initialValue: value,
         decoration: _inputDecoration(label: label, icon: icon),
         hint: Text(hint),
         items: items
@@ -1231,7 +1232,7 @@ class _DoseSlotEditorState extends State<_DoseSlotEditor> {
                     // Etiket seçimi
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: slot?.label,
+                        initialValue: slot?.label,
                         decoration: InputDecoration(
                           prefixIcon: const Icon(Icons.label_outline_rounded),
                           labelText: 'Zaman Etiketi',
@@ -1617,8 +1618,8 @@ class _InteractionWarningCard extends StatelessWidget {
           const Row(
             children: [
               Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F)),
-              const SizedBox(width: 8),
-              const Text(
+              SizedBox(width: 8),
+              Text(
                 'Etkileşim Uyarısı',
                 style: TextStyle(
                   color: Color(0xFFB71C1C),
