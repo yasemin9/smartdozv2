@@ -141,9 +141,13 @@ app.add_middleware(
         "http://localhost:52000",
         "http://localhost:52001",
         "http://127.0.0.1:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:4200",
+        "http://127.0.0.1:5173",
         "http://10.167.158.252:8000",  # Fiziksel cihaz için IP
     ],
-    allow_origin_regex=r"http://10\.167\.158\.252:\d+",
+    # Flutter Web debug sırasında portlar dinamik olabilir.
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?|http://10\.167\.158\.252:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

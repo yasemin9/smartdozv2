@@ -132,16 +132,16 @@ async def scan_medication_barcode(
 
         if medication:
             logger.info(
-                f"Barkod eşleşmesi bulundu: {medication.name} "
+                f"Barkod eşleşmesi bulundu: {medication.product_name} "
                 f"(ID: {medication.id}, barcode: {barcode_value})"
             )
             return BarcodeMatchResult(
                 found=True,
                 barcode=barcode_value,
                 medication_id=medication.id,
-                medication_name=medication.name,
+                medication_name=medication.product_name,
                 confidence=1.0,
-                message=f"✅ İlaç başarıyla eşleştirildi: {medication.name}",
+                message=f"✅ İlaç başarıyla eşleştirildi: {medication.product_name}",
             )
         else:
             logger.warning(
@@ -205,15 +205,15 @@ async def search_medication_by_barcode(
 
     if medication:
         logger.info(
-            f"Barkod arama başarılı: {medication.name} (barcode: {barcode_value})"
+            f"Barkod arama başarılı: {medication.product_name} (barcode: {barcode_value})"
         )
         return BarcodeMatchResult(
             found=True,
             barcode=barcode_value,
             medication_id=medication.id,
-            medication_name=medication.name,
+            medication_name=medication.product_name,
             confidence=1.0,
-            message=f"İlaç bulundu: {medication.name}",
+            message=f"İlaç bulundu: {medication.product_name}",
         )
     else:
         logger.info(f"Barkod arama sonuç yok: {barcode_value}")

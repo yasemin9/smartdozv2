@@ -659,6 +659,29 @@ async def search_global_medications(
     return result.scalars().all()
 
 
+@router.get(
+    "/global/{global_medication_id}",
+    response_model=GlobalMedicationSearchResult,
+    summary="Global ilaç detayını ID ile getir",
+)
+async def get_global_medication_by_id(
+    global_medication_id: int,
+    _: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Barkod akışında seçilen global ilacı forma metadata ile taşımak için kullanılır."""
+    result = await db.execute(
+        select(GlobalMedication).where(GlobalMedication.id == global_medication_id)
+    )
+    medication = result.scalar_one_or_none()
+    if medication is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Global ilaç kaydı bulunamadı.",
+        )
+    return medication
+
+
 @router.put(
     "/{medication_id}",
     response_model=MedicationResponse,

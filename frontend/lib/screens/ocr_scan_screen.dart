@@ -15,6 +15,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/barcode_result.dart';
+import '../models/global_medication.dart';
 import '../services/api_service.dart';
 import 'add_medication_screen.dart';
 
@@ -66,7 +67,6 @@ class _OcrScanScreenState extends State<OcrScanScreen> {
 
     setState(() {
       _result = null;
-      _errorMessage = null;
     });
 
     try {
@@ -122,11 +122,21 @@ class _OcrScanScreenState extends State<OcrScanScreen> {
           _showSuccess('✅ ${result.message}');
           await Future.delayed(const Duration(milliseconds: 500));
           if (mounted) {
+            GlobalMedication? matchedMedication;
+            if (result.medicationId != null) {
+              try {
+                matchedMedication = await api.getGlobalMedicationById(result.medicationId!);
+              } catch (_) {
+                // Barkod eşleşmesi başarılı olsa da detay çekimi başarısız olabilir.
+                // Bu durumda isim ile devam ediyoruz.
+              }
+            }
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
                 builder: (_) => AddMedicationScreen(
                   prefillName: result.medicationName!,
+                  prefillGlobalMedication: matchedMedication,
                 ),
               ),
             );
@@ -295,11 +305,6 @@ class _OcrScanScreenState extends State<OcrScanScreen> {
               ),
             ),
 
-            // ── OCR ham metin göstergesi ──────────────────────────────────
-            if (_result != null && _result!.ocrRawText.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              _OcrRawTextCard(text: _result!.ocrRawText),
-            ],
           ],
         ),
       ),
@@ -446,186 +451,6 @@ class _OcrRawTextCard extends StatelessWidget {
                 fontFamily: 'monospace', fontSize: 13, color: _kTextDark),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Aday listesi bottom sheet (Kullanıcı Onay Arayüzü)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _CandidatesBottomSheet extends StatelessWidget {
-  final OcrScanResult result;
-  final void Function(String name) onSelect;
-
-  const _CandidatesBottomSheet({
-    required this.result,
-    required this.onSelect,
-  });
-
-  Color _scoreColor(double score) {
-    if (score >= 0.95) return _kSuccess;
-    if (score >= 0.88) return _kWarning;
-    return _kDanger;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Tutamaç ──────────────────────────────────────────────────────
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // ── Başlık ───────────────────────────────────────────────────────
-          const Row(
-            children: [
-              Icon(Icons.check_circle_outline_rounded,
-                  color: _kSuccess, size: 22),
-              SizedBox(width: 8),
-              Text(
-                'En Yakın Eşleşmeler',
-                style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 17,
-                    color: _kTextDark),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Algoritma 3 (Levenshtein) ile bulunan adaylar.\n'
-            'Doğru ilacı seçerek formu otomatik doldurun.',
-            style: TextStyle(
-                fontSize: 12,
-                color: _kTextMid,
-                height: 1.5),
-          ),
-          const SizedBox(height: 16),
-
-          // ── Aday listesi ─────────────────────────────────────────────────
-          ...result.candidates.map((c) => _CandidateTile(
-                candidate: c,
-                scoreColor: _scoreColor(c.similarity),
-                onTap: () => onSelect(c.medicationName),
-              )),
-
-          const SizedBox(height: 8),
-
-          // ── İptal butonu ─────────────────────────────────────────────────
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: _kTextMid,
-              minimumSize: const Size.fromHeight(44),
-            ),
-            child: const Text('Vazgeç',
-                style: TextStyle(fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CandidateTile extends StatelessWidget {
-  final OcrMatchCandidate candidate;
-  final Color scoreColor;
-  final VoidCallback onTap;
-
-  const _CandidateTile({
-    required this.candidate,
-    required this.scoreColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: _kBg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.grey.shade200),
-        ),
-        child: Row(
-          children: [
-            // İlaç ikonu
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: scoreColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.medication_rounded,
-                  color: scoreColor, size: 22),
-            ),
-            const SizedBox(width: 14),
-
-            // İsim ve skor
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    candidate.medicationName,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                        color: _kTextDark),
-                  ),
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Icon(Icons.bar_chart_rounded,
-                          size: 13, color: scoreColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Levenshtein benzerliği: ${candidate.similarityPercent}',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: scoreColor,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Seçim oku
-            Icon(Icons.arrow_forward_ios_rounded,
-                size: 14, color: Colors.grey.shade400),
-          ],
-        ),
       ),
     );
   }

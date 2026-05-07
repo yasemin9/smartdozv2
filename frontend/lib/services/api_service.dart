@@ -5,6 +5,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -26,8 +27,14 @@ import '../models/caregiver.dart';
 import '../models/notification.dart';
 
 /// Uygulama içinde tek bir noktada API base URL'ini yönetir.
-/// Flutter Web için backend adresi.
-const String _kBaseUrl = 'http://10.37.197.252:8000';
+/// `--dart-define=API_BASE_URL=...` ile ezilebilir.
+const String _kBaseUrlFromEnv = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: '',
+);
+final String _kBaseUrl = _kBaseUrlFromEnv.isNotEmpty
+    ? _kBaseUrlFromEnv
+    : (kIsWeb ? 'http://127.0.0.1:8000' : 'http://10.0.2.2:8000');
 const String _kTokenKey = 'smartdoz_access_token';
 
 class ApiService extends ChangeNotifier {
@@ -245,6 +252,21 @@ class ApiService extends ChangeNotifier {
     }
     if (response.statusCode == 401) await _handleUnauthorized();
     return [];
+  }
+
+  /// Global ilaç kaydını ID ile getirir.
+  Future<GlobalMedication> getGlobalMedicationById(int id) async {
+    final response = await http.get(
+      Uri.parse('$_kBaseUrl/medications/global/$id'),
+      headers: _authHeaders,
+    );
+    if (response.statusCode == 200) {
+      return GlobalMedication.fromJson(
+        _parseBody(response) as Map<String, dynamic>,
+      );
+    }
+    if (response.statusCode == 401) await _handleUnauthorized();
+    throw const ApiException('Global ilaç detayı alınamadı.');
   }
 
   /// Ana sayfa için kritik ikili etkileşim uyarılarını döner.
