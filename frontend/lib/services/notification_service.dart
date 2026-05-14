@@ -23,6 +23,7 @@ import 'package:permission_handler/permission_handler.dart';
 class NotificationService {
   /// Oturum boyunca bildirim gönderilmiş doz log ID'leri.
   static final _shownIds = <int>{};
+  static final _shownCaregiverNotificationIds = <int>{};
 
   static bool _permissionRequested = false;
   static bool _initialized = false;
@@ -35,10 +36,10 @@ class NotificationService {
   static bool _ttsReady = false;
 
   // ── Initialization ─────────────────────────────────────────────
-  
+
   /// Notification action callback (global scope)
   static Function(String? payload, String actionId)? onNotificationAction;
-  
+
   /// Notification plugin'i başlat (mobile + web)
   static Future<void> init({
     Function(String? payload, String actionId)? onAction,
@@ -72,11 +73,12 @@ class NotificationService {
     await _notificationsPlugin.initialize(
       settings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        debugPrint('[Notif] Action: ${response.actionId}, Payload: ${response.payload}');
+        debugPrint(
+            '[Notif] Action: ${response.actionId}, Payload: ${response.payload}');
         onNotificationAction?.call(response.payload, response.actionId ?? '');
       },
     );
-    
+
     if (onAction != null) {
       onNotificationAction = onAction;
     }
@@ -116,10 +118,10 @@ class NotificationService {
 
     // Android 13+ ve iOS: Notification izni iste
     final status = await Permission.notification.request();
-    
+
     final granted = status.isGranted || status.isDenied;
     debugPrint('[Notif] Notification permission: $status');
-    
+
     return granted;
   }
 
@@ -132,31 +134,35 @@ class NotificationService {
     required String userName,
     required String scheduledTime,
   }) async {
+    if (_shownIds.contains(doseLogId)) return;
+
     if (kIsWeb) {
       debugPrint('[Notif] Web: Missed dose notification (web only shows TTS)');
       await announceViaTts(
         medicationName: medicationName,
         scheduledTime: scheduledTime,
       );
+      _shownIds.add(doseLogId);
       return;
     }
 
-    final String title = '⚠️ İlaç Atlandı: $medicationName';
-    final String body = '$userName saat $scheduledTime\'de $medicationName alınması gerekirken almadı.';
-    
+    final String title = 'Ilac vakti: $medicationName';
+    final String body =
+        '$userName icin $scheduledTime saatli doz zamani geldi.';
+
     // Payload: doz bilgisi (JSON string olarak)
     final String payload = '$doseLogId|$medicationName|$scheduledTime';
 
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
-      'smartdoz_missed_dose',
-      'Atlanmış İlaç Bildirimleri',
+      'smartdoz_dose_alerts_v2',
+      'Ilac Hatirlaticilari',
       importance: Importance.max,
       priority: Priority.high,
       enableVibration: true,
       enableLights: true,
-      sound: RawResourceAndroidNotificationSound('notification_sound'),
-      ticker: '⚠️ İlaç Atlandı',
+      playSound: true,
+      ticker: 'Ilac vakti',
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction(
           'took',
@@ -170,18 +176,23 @@ class NotificationService {
           titleColor: Color.fromARGB(255, 198, 40, 40), // red
           showsUserInterface: true,
         ),
+        AndroidNotificationAction(
+          'snooze',
+          '10 dk ertele',
+          titleColor: Color.fromARGB(255, 230, 81, 0), // orange
+          showsUserInterface: true,
+        ),
       ],
     );
 
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-      sound: 'notification_sound.caf',
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
       threadIdentifier: 'missed_dose_thread',
     );
 
-    final NotificationDetails notificationDetails = NotificationDetails(
+    const NotificationDetails notificationDetails = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -194,10 +205,57 @@ class NotificationService {
       payload: payload,
     );
 
+    _shownIds.add(doseLogId);
     debugPrint('[Notif] Missed dose shown: $medicationName (ID: $doseLogId)');
   }
 
-  /// Genel bildirim göster
+  /// Bakici hesabina dusen backend bildirimini sistem tepsisinde gosterir.
+  static Future<void> showCaregiverNotification({
+    required int notificationId,
+    required String title,
+    required String body,
+  }) async {
+    if (_shownCaregiverNotificationIds.contains(notificationId)) return;
+    _shownCaregiverNotificationIds.add(notificationId);
+
+    if (kIsWeb) {
+      debugPrint('[Notif] Web caregiver notification: $title - $body');
+      return;
+    }
+
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'smartdoz_caregiver_alerts_v2',
+      'Bakici Bildirimleri',
+      importance: Importance.max,
+      priority: Priority.high,
+      enableVibration: true,
+      enableLights: true,
+      playSound: true,
+      ticker: 'SmartDoz Bakici Bildirimi',
+    );
+
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      threadIdentifier: 'caregiver_alerts_thread',
+    );
+
+    const NotificationDetails notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notificationsPlugin.show(
+      100000 + notificationId,
+      title,
+      body,
+      notificationDetails,
+      payload: 'caregiver|$notificationId',
+    );
+  }
+
   static Future<void> showNotification({
     required int id,
     required String title,
@@ -212,16 +270,15 @@ class NotificationService {
 
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
-      'smartdoz_general',
+      'smartdoz_general_v2',
       'SmartDoz Bildirimleri',
       importance: Importance.high,
       priority: Priority.high,
       enableVibration: true,
-      sound: RawResourceAndroidNotificationSound('notification_sound'),
+      playSound: true,
     );
 
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-      sound: 'notification_sound.caf',
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
@@ -326,4 +383,3 @@ class NotificationService {
   static String buildBody(String scheduledTime) =>
       'Planlanan saat: $scheduledTime';
 }
-

@@ -1,8 +1,8 @@
 """SmartDoz - Bildirim Router (EK1_revize.pdf Modül 2 & 7)
 
 GET  /notifications/pending
-    Kullanıcıya ait, önümüzdeki WINDOW_MINUTES dakika içinde zamanı gelecek
-    veya gecikmiş 'Bekliyor' / 'Ertelendi' doz loglarını döner.
+    Kullanıcıya ait, zamanı gelmiş veya kısa süre gecikmiş 'Bekliyor' /
+    'Ertelendi' doz loglarını döner.
 
 POST /notifications/snooze/{dose_log_id}
     Verilen dozu kullanıcının seçtiği süre kadar (5/10/15 dk) erteler.
@@ -17,23 +17,75 @@ Aynı doz için tekrar bildirim göndermemek frontend'in sorumluluğundadır
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import DoseLog, Medication, User
+from models import CaregiverRelationship, DoseLog, Medication, Notification, User
 from schemas import DoseLogResponse, SnoozeRequest
 
 router = APIRouter(prefix="/notifications", tags=["Bildirimler"])
 
-# Bildirim penceresi: şimdiden kaç dakika ilerisine kadar
-WINDOW_MINUTES = 15
+# Bildirim penceresi: zamani gelmis dozlari yakala; erken bildirim yok.
+WINDOW_MINUTES = 0
 # Geriye doğru tolerans: gecikmeli dozları yakalamak için
 BACK_TOLERANCE_MINUTES = 5
 
 # Snooze'a izin verilen kaynak durumlar (tek-seferlik kısıtlaması kaldırıldı)
 _SNOOZE_ALLOWED_FROM = {"Bekliyor", "Ertelendi"}
+
+
+async def _notify_caregivers_for_snoozed_due(
+    db: AsyncSession,
+    user_id: int,
+    log: DoseLog,
+    medication: Medication,
+) -> None:
+    """Create one caregiver alert when a snoozed dose becomes due again."""
+    existing_res = await db.execute(
+        select(Notification).where(
+            and_(
+                Notification.user_id == user_id,
+                Notification.dose_log_id == log.id,
+                Notification.notification_type == "SNOOZED_DOSE_DUE",
+            )
+        )
+    )
+    if existing_res.scalar_one_or_none() is not None:
+        return
+
+    caregivers_res = await db.execute(
+        select(CaregiverRelationship).where(
+            and_(
+                CaregiverRelationship.user_id == user_id,
+                CaregiverRelationship.is_active == True,
+            )
+        )
+    )
+    caregivers = caregivers_res.scalars().all()
+    if not caregivers:
+        return
+
+    scheduled_time_str = log.scheduled_time.strftime("%H:%M")
+    for caregiver_rel in caregivers:
+        db.add(
+            Notification(
+                user_id=user_id,
+                caregiver_id=caregiver_rel.caregiver_user_id,
+                dose_log_id=log.id,
+                medication_id=medication.id,
+                notification_type="SNOOZED_DOSE_DUE",
+                title=f"Ilac hatirlatmasi: {medication.name}",
+                message=(
+                    f"{medication.name} ertelenen dozunun zamani geldi "
+                    f"({scheduled_time_str})."
+                ),
+                is_read=False,
+            )
+        )
+
+    await db.commit()
 
 
 @router.get(
@@ -78,20 +130,34 @@ async def get_pending_notifications(
     )
     logs = logs_res.scalars().all()
 
-    return [
-        DoseLogResponse(
-            id=log.id,
-            medication_id=log.medication_id,
-            medication_name=med_map[log.medication_id].name,
-            dosage_form=med_map[log.medication_id].dosage_form,
-            scheduled_time=log.scheduled_time,
-            actual_time=log.actual_time,
-            status=log.status,
-            notes=log.notes,
+    result = []
+    for log in sorted(logs, key=lambda l: l.scheduled_time):
+        if log.medication_id not in med_map:
+            continue
+
+        medication = med_map[log.medication_id]
+        if log.status == "Ertelendi" and log.scheduled_time <= now:
+            await _notify_caregivers_for_snoozed_due(
+                db=db,
+                user_id=current_user.id,
+                log=log,
+                medication=medication,
+            )
+
+        result.append(
+            DoseLogResponse(
+                id=log.id,
+                medication_id=log.medication_id,
+                medication_name=medication.name,
+                dosage_form=medication.dosage_form,
+                scheduled_time=log.scheduled_time,
+                actual_time=log.actual_time,
+                status=log.status,
+                notes=log.notes,
+            )
         )
-        for log in sorted(logs, key=lambda l: l.scheduled_time)
-        if log.medication_id in med_map
-    ]
+
+    return result
 
 
 @router.post(

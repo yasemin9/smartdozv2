@@ -99,7 +99,7 @@ class DashboardTabState extends State<DashboardTab>
 
   // ── Her 60 saniyede backend'den yaklaşan dozları polling ile bildir
   void _startNotificationPolling() {
-    _notifTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+    Future<void> poll() async {
       try {
         final pending = await context
             .read<ApiService>()
@@ -108,7 +108,7 @@ class DashboardTabState extends State<DashboardTab>
         
         for (final log in pending) {
           final t = DateFormat('HH:mm').format(log.scheduledTime);
-          NotificationService.showMissedDoseNotification(
+          await NotificationService.showMissedDoseNotification(
             doseLogId: log.id,
             medicationName: log.medicationName,
             userName: user?.firstName ?? 'Kullanıcı',
@@ -121,7 +121,13 @@ class DashboardTabState extends State<DashboardTab>
       } catch (_) {
         // Bildirim polling kritik değil, sessizce geç
       }
-    });
+    }
+
+    Future.microtask(poll);
+    _notifTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => poll(),
+    );
   }
 
   // ── Doz timeout mekanizması: 5 dakika sonra otomatik "Atlandı" işaretle
@@ -366,6 +372,37 @@ class DashboardTabState extends State<DashboardTab>
     
     final int doseLogId = int.tryParse(parts[0]) ?? 0;
     if (doseLogId == 0) return;
+
+    if (actionId == 'snooze') {
+      debugPrint('[Dashboard] Snoozing dose $doseLogId for 10 min via notification');
+      context
+          .read<ApiService>()
+          .snoozeDose(doseLogId, 10)
+          .then((_) {
+        NotificationService.clearId(doseLogId);
+        if (mounted) {
+          setState(_loadDoses);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Doz 10 dakika ertelendi'),
+              backgroundColor: _kWarning,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }).catchError((e) {
+        debugPrint('[Dashboard] Error snoozing dose: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Hata: $e'),
+              backgroundColor: _kDanger,
+            ),
+          );
+        }
+      });
+      return;
+    }
     
     // Action: took (aldım) veya skipped (almadım)
     final newStatus = actionId == 'took' ? 'Alındı' : 'Atlandı';

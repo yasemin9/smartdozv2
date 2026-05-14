@@ -11,7 +11,10 @@
 //   3 → AIProfileScreen – Modül 8: YZ Akıllı Profil & Kararlar
 //   4 → ProfileTab      – Kullanıcı & tercihler
 // Modül 6: FAB → VoiceAssistantScreen
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'ai_profile_screen.dart';
 import 'calendar_screen.dart';
@@ -19,6 +22,8 @@ import 'dashboard_tab.dart';
 import 'medications_tab.dart';
 import 'profile_tab.dart';
 import 'voice_assistant_screen.dart';
+import '../services/api_service.dart';
+import '../services/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -29,6 +34,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  Timer? _caregiverNotifTimer;
 
   // GlobalKey: ilaç eklenince DashboardTab'ı yenilemek için
   final _dashboardKey = GlobalKey<DashboardTabState>();
@@ -49,6 +55,39 @@ class _HomeScreenState extends State<HomeScreen> {
       const AIProfileScreen(),
       const ProfileTab(),
     ];
+    _startCaregiverNotificationPolling();
+  }
+
+  @override
+  void dispose() {
+    _caregiverNotifTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startCaregiverNotificationPolling() {
+    Future<void> poll() async {
+      try {
+        final notifications = await context.read<ApiService>().getNotifications(
+              limit: 10,
+              unreadOnly: true,
+            );
+        for (final notification in notifications.notifications) {
+          await NotificationService.showCaregiverNotification(
+            notificationId: notification.id,
+            title: notification.title,
+            body: notification.message,
+          );
+        }
+      } catch (_) {
+        // Caregiver alerts are best-effort and must not block the app shell.
+      }
+    }
+
+    Future.microtask(poll);
+    _caregiverNotifTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => poll(),
+    );
   }
 
   @override
